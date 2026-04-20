@@ -1,0 +1,440 @@
+/*
+ * Page-wide dark mode for Agresso, which has no native dark theme.
+ *
+ * Trick: invert the whole page's colors and rotate hue 180° — colors end up
+ * dark but hues (blues/greens/reds) stay roughly recognisable. Photos,
+ * screenshots and icons that should NOT be inverted (otherwise they look
+ * alien) are re-inverted a second time so they appear at original colors.
+ *
+ * Our own UI (#agresso-autosave-indicator, #agresso-period-banner) is also
+ * re-inverted so the dark tokens we picked for it stay correctly dark on
+ * the now-dark page.
+ */
+html.agresso-dark-page {
+    background: #fff !important; /* the filter inverts this to near-black */
+    filter: invert(0.92) hue-rotate(180deg) !important;
+}
+html.agresso-dark-page body {
+    background: inherit !important;
+}
+html.agresso-dark-page img,
+html.agresso-dark-page video,
+html.agresso-dark-page canvas,
+html.agresso-dark-page iframe,
+html.agresso-dark-page svg image,
+html.agresso-dark-page [style*="background-image"] {
+    filter: invert(1) hue-rotate(180deg);
+}
+/* Keep our own UI at its intended dark look (double-invert → original). */
+html.agresso-dark-page #agresso-autosave-indicator,
+html.agresso-dark-page #agresso-period-banner {
+    filter: invert(1) hue-rotate(180deg);
+}
+
+/*
+ * Grid layout.
+ *
+ * Agresso ships a JS `ColumnsAutoResizable` script that sets inline column
+ * widths at runtime — any inline style we apply from our own JS gets
+ * overwritten moments later. Doing it via a stylesheet with `!important`
+ * wins the cascade for the life of the page.
+ */
+
+/*
+ * ---------------------------------------------------------------------
+ * Grid stretch — why this is more than a single rule.
+ *
+ * Agresso lays every section out with `display: table / table-row /
+ * table-cell` (u4-section-placeholder / PlaceHolderRow /
+ * SectionPlaceHolder). Each SectionPlaceHolder is a table-cell with NO
+ * explicit width — CSS table-cells without a width shrink to fit their
+ * content. So even though the Excel grid inside declares `width="100%"`,
+ * that "100%" is 100% of a shrink-to-fit ancestor, producing a grid
+ * narrower than the viewport. Plus the grid sits inside yet another
+ * wrapper: `<table class="DataListBlue" width="100%"><tr><td>` — the
+ * inner <td> has no width either.
+ *
+ * Fix chain: force every intermediate wrapper that Agresso leaves
+ * width-less to take 100% of its parent, so the Excel grid's own
+ * width=100% finally resolves to 100% of the viewport. Applied via a
+ * stylesheet (not inline style) so Agresso's ColumnsAutoResizable JS
+ * can't stomp it, and using `!important` to beat any author-level
+ * overrides inside their CSS.
+ * ---------------------------------------------------------------------
+ */
+
+/* Outer Horizontal section placeholders — Agresso sets width:100% on
+   table.Horizontal / div.Horizontal already; we re-assert with
+   !important just in case a narrower rule wins locally. */
+div.u4-section-placeholder.Horizontal,
+div.u4-section-container {
+    width: 100% !important;
+}
+
+/* The display:table-cell wrappers (SectionPlaceHolder, SectionControl)
+   are the actual shrink-to-fit offenders — give them a width so the
+   cell grows to fill the row. */
+div.SectionPlaceHolder,
+div.SectionControl {
+    width: 100% !important;
+}
+
+/* Agresso's inner wrapper table around the grid — has width=100% on the
+   table but the contained <td> is unset. Force the <td> too. */
+table.DataListBlue,
+table.DataListBlue > tbody > tr > td,
+table.DataListBlue > tr > td {
+    width: 100% !important;
+}
+
+/* Finally the grid tables themselves. Both Arbetstimmar and
+   Tidtransaktion use class="Excel"; .MainTable covers legacy layouts. */
+.MainTable,
+table.Excel {
+    width: 100% !important;
+}
+
+/* Beskrivningstext (description) — the one ergonomic column override we
+   keep. It has two goals:
+     1. Floor at 500px so normal descriptions never truncate to "Konsulta…"
+     2. Grow beyond 500px to absorb any leftover horizontal space so the
+        table never leaves an empty gap right of Fakt. värde.
+   Technique: `width: auto !important` cancels Agresso's inline
+   `width:90px` on the <th>; `min-width: 500px !important` enforces the
+   floor; and then on the <th> alone we add `width: 100% !important`,
+   which browsers treat as "give me any remaining space" when multiple
+   columns declare widths in an auto-layout table. Other columns keep
+   their Agresso-native widths (60-90px each) and description absorbs
+   everything that's left. The matching JS path in cells.js rewrites
+   `data-minwidth` / `data-tempwidth` so Agresso's auto-resize script
+   agrees. */
+/* Beskrivningstext — restore the 1.2.8-style flex: `width: 100%` on the
+   <th> so the column absorbs leftover horizontal space, `min-width:
+   500px` as the floor. Dropping `width: 100%` in 1.2.13 collapsed the
+   column to Agresso's default 90px because browsers in table-layout:
+   auto don't always honour `min-width` on <th> when no `width` hint is
+   provided — header labels started overlapping. Body cells (td) use
+   `width: auto` so they match the column width flowing down from the
+   header. */
+th[data-fieldname="description"] {
+    width: 100% !important;
+    min-width: 500px !important;
+}
+td[onclick*="'description'"] {
+    width: auto !important;
+    min-width: 500px !important;
+}
+th[data-fieldname="description"] > div,
+td[onclick*="'description'"] > div {
+    min-width: 500px !important;
+}
+
+/* Description body cells carry Agresso's `.nw` class which sets
+   `white-space: nowrap`. Without the override, a long description like
+   "Konsultation brandvägg, dialog kring fortipam, fortiauth, fortiweb"
+   renders on a single line and overflows into the Tidsenhet column
+   whenever the viewport is too narrow to give the column its full
+   500px. Force normal whitespace + breakable words so the cell wraps
+   to multiple lines instead of spilling. Inner `.DivOverflowNoWrap`
+   still has `overflow: hidden`, so if wrapping isn't enough, the text
+   ellipses cleanly inside the cell. */
+td[onclick*="'description'"],
+td[onclick*="'description'"] > div {
+    white-space: normal !important;
+    overflow-wrap: break-word !important;
+    word-break: break-word !important;
+}
+
+/* In an edit row, Agresso renders a "selected value" label under each
+   picker widget (e.g. the "Timmar" text under the Tidsenhet picker, or
+   "Normal arbetstid" under Tidkod). Those labels live in a <DIV
+   class="Message Description ..."> that sometimes visually spills
+   past its own cell into the next column in the narrow default
+   column widths. The widget itself (input + picker button) is
+   elsewhere in the cell and stays visible — hiding just the label is a
+   cosmetic clean-up that removes the spillover without breaking
+   editing. Applied only inside edit rows so static rows are untouched. */
+tr.EditRow td.GridCell .Message,
+tr.EditRow td.GridCell .Description {
+    display: none !important;
+}
+
+/* Allow Agresso's header/body "NoWrap" divs to wrap so the description
+   column (and any other wide text) uses multiple lines rather than
+   ellipsing mid-sentence. */
+.DivOverflowNoWrap {
+    white-space: break-spaces !important;
+}
+
+/*
+ * Theme tokens. The indicator defaults to DARK (safe high-contrast over the
+ * light Agresso/U4 UI). User-selected theme via the options page stamps a
+ * data-agresso-theme attribute on <html>; when set to "auto" (no attribute)
+ * we fall back to prefers-color-scheme. Explicit light/dark always wins over
+ * the OS preference — necessary because Chrome extension pages don't
+ * reliably pick up OS dark mode on every Chrome/OS combination.
+ */
+html[data-agresso-theme="light"] #agresso-autosave-indicator {
+    --agresso-bg: rgba(255, 255, 255, 0.96);
+    --agresso-fg: #1d1f22;
+    --agresso-sub: #52566e;
+    --agresso-shadow: 0 6px 16px rgba(0, 0, 0, 0.14);
+}
+
+@media (prefers-color-scheme: light) {
+    html:not([data-agresso-theme]) #agresso-autosave-indicator {
+        --agresso-bg: rgba(255, 255, 255, 0.96);
+        --agresso-fg: #1d1f22;
+        --agresso-sub: #52566e;
+        --agresso-shadow: 0 6px 16px rgba(0, 0, 0, 0.14);
+    }
+}
+
+#agresso-autosave-indicator {
+    /* Dark defaults. Overridden by data-agresso-theme="light" or
+       prefers-color-scheme: light above. */
+    --agresso-bg: rgba(15, 23, 42, 0.92);
+    --agresso-fg: #e2e8f0;
+    --agresso-sub: #cbd5e1;
+    --agresso-accent-saving: rgba(37, 99, 235, 0.92);
+    --agresso-accent-error: rgba(185, 28, 28, 0.92);
+    --agresso-shadow: 0 6px 16px rgba(0, 0, 0, 0.35);
+
+    position: fixed;
+    top: auto;
+    bottom: 20px;
+    right: 16px;
+    z-index: 9999;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 12px;
+    min-height: 36px;
+    min-width: 180px;
+    border-radius: 4px;
+    background: var(--agresso-bg);
+    color: var(--agresso-fg);
+    font-family: "Helvetica Neue", Arial, sans-serif;
+    font-size: 13px;
+    letter-spacing: 0.01em;
+    box-shadow: var(--agresso-shadow);
+    backdrop-filter: blur(4px);
+    pointer-events: auto;
+    overflow: hidden;
+}
+
+/* Light-theme accent overrides. Applied both for explicit light theme and
+   auto mode on a prefers-color-scheme: light system. These have to live
+   after the state-coloured .agresso-saving / .agresso-error rules to win on
+   cascade order, so we use :is() with higher specificity via the html[] prefix. */
+html[data-agresso-theme="light"] #agresso-autosave-indicator .agresso-toggle,
+html:not([data-agresso-theme]) #agresso-autosave-indicator .agresso-toggle { color: var(--agresso-fg); }
+html[data-agresso-theme="light"] #agresso-autosave-indicator.agresso-saving { background: rgba(219, 234, 254, 0.96); color: #1e40af; }
+html[data-agresso-theme="light"] #agresso-autosave-indicator.agresso-error  { background: rgba(254, 226, 226, 0.96); color: #991b1b; }
+@media (prefers-color-scheme: light) {
+    html:not([data-agresso-theme]) #agresso-autosave-indicator.agresso-saving { background: rgba(219, 234, 254, 0.96); color: #1e40af; }
+    html:not([data-agresso-theme]) #agresso-autosave-indicator.agresso-error  { background: rgba(254, 226, 226, 0.96); color: #991b1b; }
+}
+
+/* Toggle switch inside the indicator */
+#agresso-autosave-indicator .agresso-toggle {
+    margin-right: 8px;
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    padding: 4px;
+    gap: 8px;
+    color: #e2e8f0;
+}
+
+#agresso-autosave-indicator .agresso-toggle:focus {
+    outline: 2px solid rgba(99,102,241,0.16);
+    border-radius: 6px;
+}
+
+/* Make the toggle smaller (approximately half the indicator height) */
+#agresso-autosave-indicator .agresso-toggle .switch {
+    width: 32px;
+    height: 16px;
+    background: #374151;
+    border-radius: 9999px;
+    position: relative;
+    transition: background 0.18s ease;
+}
+
+#agresso-autosave-indicator .agresso-toggle .knob {
+    width: 12px;
+    height: 12px;
+    background: #ffffff;
+    border-radius: 50%;
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    transition: left 0.18s ease, transform 0.18s ease;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.35);
+}
+
+/* On state */
+#agresso-autosave-indicator.agresso-enabled .agresso-toggle .switch {
+    background: #16a34a;
+}
+
+#agresso-autosave-indicator.agresso-enabled .agresso-toggle .knob {
+    left: 18px;
+}
+
+/* Disabled visual */
+#agresso-autosave-indicator.agresso-disabled .agresso-toggle .switch {
+    background: #9ca3af;
+}
+
+
+#agresso-autosave-indicator .agresso-autosave-timer {
+    position: absolute;
+    left: 0;
+    bottom: 0;
+    height: 3px;
+    width: 0;
+    background: #22c55e;
+    opacity: 0.9;
+}
+
+html.agresso-dark-mode .k-state-selected,
+html.agresso-dark-mode .selected,
+html.agresso-dark-mode tr:hover,
+html.agresso-dark-mode .k-grid tr:hover {
+    background-color: #1f2937 !important;
+}
+
+#agresso-autosave-indicator .agresso-autosave-dot {
+    display: none; /* replaced by the toggle */
+}
+
+/* Mirror the dot's visual states on the toggle switch */
+#agresso-autosave-indicator.agresso-saving .agresso-toggle .switch {
+    background: #22c55e;
+    box-shadow: 0 0 0 5px rgba(34,197,94,0.18);
+    animation: agresso-autosave-pulse 1.6s ease-in-out infinite;
+}
+
+#agresso-autosave-indicator.agresso-saved .agresso-toggle .switch {
+    background: #16a34a;
+    box-shadow: 0 0 0 0 rgba(34,197,94,0.24);
+}
+
+#agresso-autosave-indicator.agresso-pending .agresso-toggle .switch {
+    background: #16a34a;
+}
+
+#agresso-autosave-indicator.agresso-error .agresso-toggle .switch {
+    background: #f87171;
+    box-shadow: 0 0 0 5px rgba(248,113,113,0.18);
+}
+
+/* Stronger disabled styling to ensure grey when autosave is turned off */
+#agresso-autosave-indicator.agresso-disabled .agresso-toggle .switch,
+#agresso-autosave-indicator.agresso-disabled.agresso-saved .agresso-toggle .switch,
+#agresso-autosave-indicator.agresso-disabled.agresso-saving .agresso-toggle .switch,
+#agresso-autosave-indicator.agresso-disabled.agresso-pending .agresso-toggle .switch {
+    background: #9ca3af !important;
+    box-shadow: none !important;
+    animation: none !important;
+}
+
+#agresso-autosave-indicator.agresso-disabled .agresso-toggle .knob {
+    background: #f3f4f6 !important;
+}
+
+/* Make the main label red when autosave is disabled */
+#agresso-autosave-indicator.agresso-disabled .agresso-autosave-label {
+    color: #f87171 !important;
+}
+
+#agresso-autosave-indicator .agresso-autosave-label {
+    font-weight: 600;
+    /* Prevent label from wrapping onto multiple lines; ellipsize if needed. */
+    display: inline-block;
+    max-width: 10rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+#agresso-autosave-indicator .agresso-autosave-sub {
+    color: var(--agresso-sub, #cbd5e1);
+    font-size: 12px;
+    /* Subtext should also stay on one line and be shorter than the label. */
+    display: inline-block;
+    max-width: 8rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+#agresso-autosave-indicator.agresso-saving {
+    background: rgba(37, 99, 235, 0.92);
+}
+
+#agresso-autosave-indicator.agresso-saving .agresso-autosave-dot {
+    background: #22c55e;
+    box-shadow: 0 0 0 5px rgba(34, 197, 94, 0.18);
+    animation: agresso-autosave-pulse 1.6s ease-in-out infinite;
+}
+
+#agresso-autosave-indicator.agresso-saved .agresso-autosave-dot {
+    background: #22c55e;
+    box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.24);
+}
+
+#agresso-autosave-indicator.agresso-pending .agresso-autosave-dot {
+    background: #22c55e;
+}
+
+#agresso-autosave-indicator.agresso-error {
+    background: rgba(185, 28, 28, 0.92);
+}
+
+#agresso-autosave-indicator.agresso-error .agresso-autosave-dot {
+    background: #f87171;
+    box-shadow: 0 0 0 5px rgba(248, 113, 113, 0.18);
+}
+
+@keyframes agresso-autosave-pulse {
+    0% { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.25); }
+    70% { box-shadow: 0 0 0 12px rgba(34, 197, 94, 0); }
+    100% { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0); }
+}
+
+/* Styles for when today is the last day in the shown period */
+#agresso-autosave-indicator.agresso-period-end {
+    border: 2px solid rgba(217,83,79,0.9);
+    background: linear-gradient(180deg, rgba(36,41,50,0.95), rgba(30,25,28,0.95));
+    box-shadow: 0 8px 28px rgba(217,83,79,0.18), 0 2px 6px rgba(0,0,0,0.4);
+}
+
+#agresso-autosave-indicator.agresso-period-end .agresso-autosave-label {
+    color: #fff;
+}
+
+#agresso-autosave-indicator.agresso-period-end .agresso-autosave-sub {
+    color: #ffecec;
+    font-weight: 600;
+}
+
+#agresso-autosave-indicator.agresso-period-end .agresso-autosave-timer {
+    background: #d9534f !important;
+    height: 4px;
+    box-shadow: 0 0 6px rgba(217,83,79,0.6);
+    animation: agresso-period-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes agresso-period-pulse {
+    0% { box-shadow: 0 0 0 0 rgba(217,83,79,0.45); }
+    70% { box-shadow: 0 0 0 14px rgba(217,83,79,0); }
+    100% { box-shadow: 0 0 0 0 rgba(217,83,79,0); }
+}
+
+/* Acknowledged state: still highlighted but visually marked as acknowledged */
+/* (Acknowledgement UI removed) */

@@ -1,0 +1,25 @@
+{
+  "root": true,
+  "env": {
+    "browser": true,
+    "es2022": true,
+    "webextensions": true
+  },
+  "parserOptions": {
+    "ecmaVersion": 2022,
+    "sourceType": "script"
+  },
+  "globals": {
+    "chrome": "readonly",
+    "U4": "readonly",
+    "TG": "readonly"
+  },
+  "rules": {
+    "no-unused-vars": ["warn", { "argsIgnorePattern": "^(_|e$|err$)", "varsIgnorePattern": "^_" }],
+    "no-empty": ["warn", { "allowEmptyCatch": true }],
+    "no-undef": "error",
+    "no-var": "warn",
+    "eqeqeq": ["warn", "smart"],
+    "no-prototype-builtins": "off"
+  }
+}

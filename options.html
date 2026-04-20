@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>PRAgresso — Options</title>
+  <style>
+    /* Defaults (light). Explicit data-theme on <html> always wins; "auto"
+       falls back to prefers-color-scheme. */
+    :root {
+      color-scheme: light dark;
+      --fg: #1d1f22;
+      --bg: #ffffff;
+      --muted: #6b7280;
+      --border: #e5e7eb;
+      --accent: #2563eb;
+      --danger: #b02a2a;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root:not([data-theme="light"]) {
+        --fg: #e4e6eb;
+        --bg: #1a1b1e;
+        --muted: #9aa0a6;
+        --border: #2c2e33;
+        --accent: #5a8dee;
+        --danger: #ef5350;
+      }
+    }
+    html[data-theme="dark"] {
+      --fg: #e4e6eb;
+      --bg: #1a1b1e;
+      --muted: #9aa0a6;
+      --border: #2c2e33;
+      --accent: #5a8dee;
+      --danger: #ef5350;
+    }
+    html[data-theme="light"] {
+      --fg: #1d1f22;
+      --bg: #ffffff;
+      --muted: #6b7280;
+      --border: #e5e7eb;
+      --accent: #2563eb;
+      --danger: #b02a2a;
+    }
+    * { box-sizing: border-box; }
+    body {
+      font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      color: var(--fg);
+      background: var(--bg);
+      margin: 0;
+      padding: 24px;
+    }
+    main { max-width: 680px; margin: 0 auto; }
+    h1 { font-size: 20px; margin: 0 0 4px; }
+    h2 { font-size: 15px; margin: 24px 0 8px; }
+    p.lede { color: var(--muted); margin: 0 0 16px; }
+    fieldset { border: 1px solid var(--border); border-radius: 8px; padding: 12px 16px; margin: 0 0 16px; }
+    legend { padding: 0 6px; color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; }
+    label.row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 6px 0;
+    }
+    label.row > span.name { flex: 1; }
+    label.row > span.hint { color: var(--muted); font-size: 12px; flex-basis: 100%; margin-top: 2px; }
+    input[type="number"], input[type="text"], input[type="date"], select {
+      font: inherit;
+      color: inherit;
+      background: transparent;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 4px 8px;
+      width: 160px;
+    }
+    input[type="checkbox"] { width: 16px; height: 16px; }
+    button {
+      font: inherit;
+      background: var(--accent);
+      color: #fff;
+      border: 0;
+      border-radius: 6px;
+      padding: 8px 14px;
+      cursor: pointer;
+    }
+    button.secondary { background: transparent; color: var(--fg); border: 1px solid var(--border); }
+    button.danger { background: transparent; color: var(--danger); border: 1px solid var(--danger); }
+    .actions { display: flex; gap: 10px; margin: 20px 0 0; flex-wrap: wrap; }
+    .status { margin-top: 12px; color: var(--muted); min-height: 1.2em; font-size: 13px; }
+    textarea { width: 100%; min-height: 120px; font: 12px/1.4 ui-monospace, Menlo, Consolas, monospace; background: transparent; color: inherit; border: 1px solid var(--border); border-radius: 6px; padding: 8px; }
+  </style>
+</head>
+<body>
+<main>
+  <h1>PRAgresso — Options</h1>
+  <p class="lede">Per Rosenlind's Agresso extension. Changes are applied live to every open Agresso tab — no reload needed.</p>
+
+  <fieldset>
+    <legend>Appearance</legend>
+    <label class="row"><span class="name">Theme</span>
+      <select id="theme">
+        <option value="auto">Auto (follow OS)</option>
+        <option value="dark">Dark</option>
+        <option value="light">Light</option>
+      </select>
+    </label>
+    <label class="row"><span class="hint">Applies to the options page and the floating indicator on Agresso pages.</span></label>
+  </fieldset>
+
+  <fieldset>
+    <legend>Autosave timing</legend>
+    <label class="row"><span class="name">Idle timeout before save</span><span><input type="number" id="IDLE_TIMEOUT_MS" min="2000" max="600000" step="1000" /> ms</span></label>
+    <label class="row"><span class="name">Save debounce</span><span><input type="number" id="SAVE_DEBOUNCE_MS" min="200" max="10000" step="100" /> ms</span></label>
+    <label class="row"><span class="name">Save cooldown</span><span><input type="number" id="SAVE_COOLDOWN_MS" min="500" max="30000" step="100" /> ms</span></label>
+    <label class="row"><span class="name">Dialog sweep duration</span><span><input type="number" id="DIALOG_SWEEP_MS" min="500" max="60000" step="500" /> ms</span></label>
+  </fieldset>
+
+  <fieldset>
+    <legend>Period reminder</legend>
+    <label class="row"><span class="name">Remind when period is due / overdue</span><input type="checkbox" id="reminder_enabled" /></label>
+    <label class="row"><span class="name">Reminder language</span>
+      <select id="reminder_lang">
+        <option value="sv">Svenska</option>
+        <option value="en">English</option>
+      </select>
+    </label>
+    <label class="row"><span class="name">Manual period-end override</span><input type="date" id="period_override" /></label>
+    <label class="row"><span class="hint">Clear the override date to use the period end detected from the page.</span></label>
+  </fieldset>
+
+  <fieldset>
+    <legend>Auto-click behaviour</legend>
+    <label class="row"><span class="name">Auto-click “Stay signed in” / “Keep me signed in”</span><input type="checkbox" id="auto_stay_signed_in" /></label>
+    <label class="row"><span class="name">Auto-click “Return to application”</span><input type="checkbox" id="auto_return_to_app" /></label>
+  </fieldset>
+
+  <fieldset>
+    <legend>Session keep-alive</legend>
+    <label class="row"><span class="name">Keep the Agresso session warm</span><input type="checkbox" id="session_keepalive_enabled" /></label>
+    <label class="row"><span class="name">Interval</span><span><input type="number" id="session_keepalive_minutes" min="1" max="120" step="1" /> min</span></label>
+    <label class="row"><span class="hint">Pings <code>/api/session/current?renew=true</code> and dispatches a benign activity event so Unit4's own heartbeat doesn't drop. Runs only when autosave is on.</span></label>
+  </fieldset>
+
+  <fieldset>
+    <legend>Layout</legend>
+    <label class="row"><span class="name">Hide <code>Bereds.</code> (ace_code) column</span><input type="checkbox" id="hide_ace_code" /></label>
+    <label class="row"><span class="name">Hide <code>Arb.typ</code> (work_type) column</span><input type="checkbox" id="hide_work_type" /></label>
+    <label class="row"><span class="name">Show project name under Delproj code</span><input type="checkbox" id="show_project_label" /></label>
+  </fieldset>
+
+  <fieldset>
+    <legend>Settings portability</legend>
+    <label class="row"><span class="name">Current settings (JSON)</span></label>
+    <textarea id="settings_json" spellcheck="false"></textarea>
+    <div class="actions">
+      <button id="btn_export" class="secondary" type="button">Copy to clipboard</button>
+      <button id="btn_import" class="secondary" type="button">Import from textarea</button>
+      <button id="btn_reset" class="danger" type="button">Reset to defaults</button>
+    </div>
+  </fieldset>
+
+  <div class="actions">
+    <button id="btn_save" type="button">Save</button>
+  </div>
+  <div class="status" id="status" role="status" aria-live="polite"></div>
+</main>
+<script src="options.js"></script>
+</body>
+</html>
