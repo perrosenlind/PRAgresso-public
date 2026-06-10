@@ -1,0 +1,31 @@
+# macOS
+.DS_Store
+
+# Editor / IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Node (only if this project ever grows a build toolchain)
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+package-lock.json
+
+# Browser capture / debugging artefacts — never commit these, they
+# often contain auth cookies, session tokens, and customer data.
+*.har
+
+# Local dev scratch
+*.log
+.env
+.env.local
+tmp/
+dist/
+build/
+
+# Zipped bundles produced for release (keep the unpacked source only)
+*.zip
+*.crx
