@@ -4,6 +4,21 @@ All notable changes to **PRAgresso** are logged here.
 
 Versioning follows SemVer: patch (third digit) = bug fix, minor (second) = new feature, major (first) = breaking change.
 
+## 1.7.1 — 2026-08-26
+
+### Fixed
+- **A rejected row no longer knocks the whole grid two columns out from under the day headers.** Reported from the field with a screenshot: on a timesheet holding a rejected (`nekad`) row, every row sat visibly offset — `Timmar` under `Tis`, the weekend shading under `Sum` / `Fakt. värde` — and only the row actually in edit mode still lined up. Measured off that screenshot, the offset is exactly two columns, which is exactly the number of columns PRAgresso hides.
+
+  Root cause: `applyColumnHideSheet` reaches a static body cell for `Bereds.` / `Arb.typ` through the inline `onclick="TG.GS.ER(this, 'ace_code')"` handler Agresso attaches to a cell you can click to open for editing. A row that is not editable in place never gets that handler, so the selector cannot match it and the row keeps two cells every other row has hidden — pushing `Tidsenhet` and all seven day cells two slots right. This is the same trap 1.4.9 hit on absence rows, one row type over: attribute-based selectors only find the cells Agresso decided to make interactive.
+
+  Those cells are now also hidden by **column index**. `<th data-fieldname="ace_code">` names the column, `display: none` does not change a cell's index, and grid rows keep a 1:1 cell↔header alignment in this build — the same assumption `editRowCellByField` already relies on. The index pass is trusted only while a row's cell count matches the header's, so a `colspan`ed footer or an unfamiliar layout is left alone rather than having the wrong cell hidden; rows belonging to the nested tables inside an edit row's widgets are skipped outright. A mismatch logs once under debug logging, so the next report says why rather than only that.
+
+- **The session dialog is clicked again when it turns up during a genuinely idle stretch.** Both of the things that started a dialog sweep are silent in exactly the situation the dialog appears in. A save starts an 8-second burst — but the idle timer stops itself the moment Agresso answers a save with `Inga ändringar gjorda!`, so a machine left alone has no save loop running at all. A DOM insertion starts a burst — but the observer tested the *added node itself* against a short list of class names, and Kendo mounts every `.k-window` inside a `div.k-animation-container`, so the dialog was only ever a **descendant** of the added node and matched nothing. Markup already in the tree that merely flips from `display: none` fires no `childList` record either way.
+
+  Two changes. The observer now matches the added node **or anything inside it**, against the same selector list `sweepDialogs` scans with — the two used to disagree, which is what let a wrapped dialog fall between them. And a standing watch now asks directly every 5 s, independent of saves and mutations, because an idle stretch is by construction the one time nothing else is running. It is deliberately narrowed to the stay-signed-in and logout dialogs: the save-success overlay is the answer to a save and belongs to the burst that save starts, not to a poll that would dismiss it seconds after a manual one. When nothing dialog-shaped is on screen — ~always — a pass costs one `querySelector` per reachable document.
+
+  Both remain gated on the master autosave toggle, unchanged: pausing the indicator still pauses every page-mutating behaviour, keep-alive and auto-click included.
+
 ## 1.7.0 — 2026-08-21
 
 ### Added

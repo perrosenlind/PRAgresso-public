@@ -1,4 +1,4 @@
-# PRAgresso — v1.7.0
+# PRAgresso — v1.7.1
 
 A Chrome extension that polishes the [Unit4 ERP / Agresso](https://www.unit4.com/) daily time-registration workflow. Inline autosave, a full-page dark mode, period-end reminders, wider Beskrivningstext, project-name labels under Delproj codes, per-delprojekt and vacation-day summary panels, auto-click for the session-expired / logout dialogs, and a configurable options page.
 

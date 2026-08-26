@@ -95,6 +95,25 @@
     '.u4-messageoverlay-success-body',
     '.u4-messageoverlay-success-footer'
   ];
+  // Anything that could BE a dialog. Used in two places that must agree:
+  // `sweepDialogs` scans for a candidate with it, and the MutationObserver
+  // decides whether a DOM change is worth starting a sweep for with it. They
+  // used to disagree — the observer tested a short hand-written list of class
+  // names against the added node ITSELF — and a dialog that arrives wrapped
+  // (Kendo mounts a `.k-window` inside a `div.k-animation-container`) matched
+  // neither the class list nor the "is the added node" part, so no sweep ever
+  // started for it.
+  const DIALOG_CANDIDATE_SELECTORS = [
+    '[role="dialog"]',
+    '.modal',
+    '.k-window',
+    '.k-dialog',
+    '.notification',
+    '.alert',
+    ...SAVE_DIALOG_SELECTORS
+  ];
+  const DIALOG_CANDIDATE_SEL = DIALOG_CANDIDATE_SELECTORS.join(',');
+
   // NOTE: save-dialog detection is intentionally SELECTOR-ONLY (the
   // u4_messageoverlay_success family in SAVE_DIALOG_SELECTORS above). We used
   // to also match a list of bare keywords ('spara', 'utkast', 'tidrapport',
@@ -1724,6 +1743,86 @@
   // structurally: anchor on the reg_value1 day editor (its input name is
   // stable across units/row types) and walk left to Tidsenhet, then
   // Arb.typ, then Bereds.
+
+  // Hidden-column cells on STATIC rows, reached by header index.
+  //
+  // `applyColumnHideSheet` matches a static body cell through the inline
+  // `onclick="TG.GS.ER(this, 'ace_code')"` handler Agresso puts on a cell you
+  // can click to open for editing. A row that is not editable in place never
+  // gets that handler, so the selector cannot match it and the row keeps two
+  // cells every other row has hidden. Two extra cells push Tidsenhet and
+  // every day cell two columns to the right — which is the exact symptom
+  // reported from the field: on a timesheet holding a rejected row, the whole
+  // grid sits two columns off under the day headers and only the row in edit
+  // mode still lines up.
+  //
+  // Reach those cells by column index instead. `<th data-fieldname="ace_code">`
+  // names the column, `display: none` does not change a cell's index, and grid
+  // rows keep a 1:1 cell↔header alignment in this build — the same assumption
+  // `editRowCellByField` already relies on, and trusted here only while the
+  // counts line up. A row with a different count (a `colspan`ed footer, a
+  // layout we have not seen) is left alone: hiding the wrong cell there would
+  // move the very numbers this is meant to keep aligned.
+  const HIDDEN_COLUMN_TH_SEL =
+    'th[data-fieldname="ace_code"], th[data-fieldname="work_type"]';
+  let hiddenColumnCountMismatchLogged = false;
+
+  function hideHiddenColumnCells() {
+    if (!settings.hide_work_type && !settings.hide_ace_code) return;
+    const wanted = [];
+    if (settings.hide_ace_code) wanted.push('ace_code');
+    if (settings.hide_work_type) wanted.push('work_type');
+    try {
+      getAllDocuments().forEach((doc) => {
+        if (!doc.querySelectorAll) return;
+        const seenTables = new Set();
+        doc.querySelectorAll(HIDDEN_COLUMN_TH_SEL).forEach((th) => {
+          const table = th.closest && th.closest('table');
+          const headerRow = th.closest && th.closest('tr');
+          if (!table || !headerRow || seenTables.has(table)) return;
+          seenTables.add(table);
+
+          const headers = headerRow.children;
+          const targets = [];
+          for (let i = 0; i < headers.length; ++i) {
+            const f = headers[i].getAttribute && headers[i].getAttribute('data-fieldname');
+            if (f && wanted.indexOf(f) !== -1) targets.push(i);
+          }
+          if (!targets.length) return;
+
+          table.querySelectorAll('tr').forEach((row) => {
+            if (row === headerRow) return;
+            // An edit row renders widgets built from nested tables; their rows
+            // come back from this querySelectorAll too. The cell-count guard
+            // below would reject almost all of them, but "almost" is not a
+            // guarantee worth relying on when the cost of being wrong is a
+            // hidden cell in the middle of a widget.
+            if (row.closest('table') !== table) return;
+            const cells = row.children;
+            if (!cells || !cells.length) return;
+            if (cells.length !== headers.length) {
+              // Not addressable by index. Worth knowing about: if the field
+              // report survives this fix, this is the line that says why.
+              if (!hiddenColumnCountMismatchLogged) {
+                hiddenColumnCountMismatchLogged = true;
+                logDebug('Grid row cell count differs from header', {
+                  headerCells: headers.length,
+                  rowCells: cells.length,
+                  rowClass: row.className || ''
+                });
+              }
+              return;
+            }
+            targets.forEach((i) => {
+              const cell = cells[i];
+              try { if (cell && cell.style) cell.style.setProperty('display', 'none', 'important'); } catch (e) {}
+            });
+          });
+        });
+      });
+    } catch (e) { /* ignore */ }
+  }
+
   function hideEditRowHiddenColumnCells() {
     if (!settings.hide_work_type && !settings.hide_ace_code) return;
     try {
@@ -2178,6 +2277,7 @@
   function enhanceLayout() {
     try { applyFieldSizing(); } catch (e) {}
     try { applyColumnHideSheet(); } catch (e) {}
+    try { hideHiddenColumnCells(); } catch (e) {}
     try { hideEditRowHiddenColumnCells(); } catch (e) {}
     try { installStickyCapture(); } catch (e) {}
     try { applyStickyEditValues(); } catch (e) {}
@@ -3871,7 +3971,13 @@
     return hasSessionText && hasStayButton;
   }
 
-  function sweepDialogs(reason) {
+  // `sessionOnly` narrows the sweep to the two dialogs that stand between the
+  // user and a dead session (stay-signed-in, logout). The standing watch runs
+  // that way so it cannot reach the save-success overlay: that overlay is the
+  // answer to a save, it belongs to the burst sweep the save itself starts,
+  // and a poll dismissing it seconds after a MANUAL save would be taking away
+  // a confirmation nobody asked us to touch.
+  function sweepDialogs(reason, sessionOnly) {
     // If autosave is disabled, do not attempt to sweep/dismiss dialogs
     try {
       if (!getToggleEnabled()) {
@@ -3892,10 +3998,9 @@
     let sawSaveDialogCandidate = false;
     let sawLogoutDialogCandidate = false;
     let sawStaySignedInDialogCandidate = false;
-    const dialogSelectors = ['[role="dialog"]', '.modal', '.k-window', '.notification', '.alert', '.k-dialog', ...SAVE_DIALOG_SELECTORS];
     for (const doc of docs) {
       try {
-        const candidate = doc.querySelector(dialogSelectors.join(','));
+        const candidate = doc.querySelector(DIALOG_CANDIDATE_SEL);
         if (!candidate) {
           continue;
         }
@@ -3910,6 +4015,10 @@
         if (isLogoutDialog(candidate)) {
           sawLogoutDialogCandidate = true;
           break;
+        }
+
+        if (sessionOnly) {
+          continue;
         }
 
         // Only the genuine save-success overlay (selector-based) counts as a
@@ -3951,7 +4060,8 @@
     if (button) {
       const dialog = findDialogContainer(button);
       // Accept save, logout, and stay-signed-in dialogs
-      if (!dialog || (!isSaveDialog(dialog) && !isLogoutDialog(dialog) && !isStaySignedInDialog(dialog))) {
+      const accepted = !!dialog && (isLogoutDialog(dialog) || isStaySignedInDialog(dialog) || (!sessionOnly && isSaveDialog(dialog)));
+      if (!accepted) {
         console.info(LOG_PREFIX, 'Dialog ignored (not save, logout, or stay-signed-in)', { reason });
         return false;
       }
@@ -4040,6 +4150,41 @@
       checkReturnToAppButton();
     }, DIALOG_SWEEP_INTERVAL_MS);
     logDebug('Started dialog sweep', { reason, durationMs: DIALOG_SWEEP_MS });
+  }
+
+  // Standing session-dialog watch.
+  //
+  // Every other sweep is event-driven, and both drivers are silent during
+  // exactly the stretch a session dialog turns up in. A save starts a burst —
+  // but the idle timer stops itself the moment Agresso answers one with
+  // "Inga ändringar gjorda!", so a machine left alone has no save loop
+  // running. A DOM insertion starts a burst — but markup already in the tree
+  // that merely flips from `display: none` produces no childList record at
+  // all, and a burst lasts DIALOG_SWEEP_MS (8 s by default) rather than until
+  // the dialog is gone. The reported symptom is the sum of those: the popup
+  // appears while nobody is at the keyboard and is still sitting there,
+  // unclicked, when they come back.
+  //
+  // So ask directly, on a slow standing interval. When nothing dialog-shaped
+  // is on screen — the case ~always — a pass costs one querySelector per
+  // reachable document and returns. Top frame only, matching sweepDialogs'
+  // own gate, and session dialogs only (see the sessionOnly note there).
+  const SESSION_DIALOG_POLL_MS = 5000;
+  let sessionDialogPollTimer = null;
+  function startSessionDialogWatch() {
+    try {
+      if (window.top && window.top !== window) return;
+    } catch (e) {
+      return;
+    }
+    try { if (sessionDialogPollTimer) window.clearInterval(sessionDialogPollTimer); } catch (e) {}
+    try {
+      sessionDialogPollTimer = window.setInterval(() => {
+        try { sweepDialogs('session-poll', true); } catch (e) {}
+        try { checkReturnToAppButton(); } catch (e) {}
+      }, SESSION_DIALOG_POLL_MS);
+      console.info(LOG_PREFIX, 'session dialog watch started', { everyMs: SESSION_DIALOG_POLL_MS });
+    } catch (e) { /* ignore */ }
   }
 
   function checkReturnToAppButton() {
@@ -6082,14 +6227,19 @@
             }
             return false;
           });
+          // Match the added node OR anything inside it — the same shape the
+          // rowsAdded test above already uses. A session dialog that arrives
+          // inside a wrapper (Kendo puts every `.k-window` in a
+          // `div.k-animation-container`) is only ever a DESCENDANT of the
+          // added node, and testing the node alone missed it entirely: no
+          // sweep started, and the popup sat there until someone clicked it.
           dialogAdded = dialogAdded || added.some((n) => {
-            if (!(n instanceof HTMLElement)) {
+            if (!(n instanceof HTMLElement)) return false;
+            try {
+              return n.matches(DIALOG_CANDIDATE_SEL) || !!n.querySelector(DIALOG_CANDIDATE_SEL);
+            } catch (e) {
               return false;
             }
-            const roleDialog = n.getAttribute('role') === 'dialog';
-            const modalClass = n.classList.contains('modal') || n.classList.contains('k-window');
-            const alertClass = n.classList.contains('alert') || n.classList.contains('notification');
-            return roleDialog || modalClass || alertClass;
           });
         }
       }
@@ -6251,6 +6401,11 @@
 
     // Proactive session keep-alive — see sessionKeepAliveTick docstring.
     scheduleSessionKeepAlive();
+
+    // ...and a standing watch for the dialog that appears when it was not
+    // enough. See startSessionDialogWatch for why the event-driven sweeps
+    // cannot cover an idle stretch on their own.
+    startSessionDialogWatch();
 
     // Gate autosave on being on the timesheet page. Without this, autosave
     // would fire Alt+S on the Start panel / menu tree / Utlägg / etc. — all
