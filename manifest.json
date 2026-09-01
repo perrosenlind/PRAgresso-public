@@ -1,12 +1,12 @@
 {
   "manifest_version": 3,
   "name": "PRAgresso",
-  "version": "1.7.1",
+  "version": "1.8.0",
   "description": "Quality-of-life enhancements for the Unit4 ERP / Agresso timesheet — inline autosave, full-page dark mode, period-end reminders, wider Beskrivningstext, session keep-alive. Configurable via the options page.",
   "icons": {
     "48": "icons/48.png"
   },
-  "permissions": ["storage"],
+  "permissions": ["storage", "alarms"],
   "host_permissions": [
     "https://ubw.unit4cloud.com/*"
   ],

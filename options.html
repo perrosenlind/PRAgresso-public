@@ -65,15 +65,15 @@
     p.lede { color: var(--muted); margin: 0 0 16px; }
     fieldset { border: 1px solid var(--border); border-radius: 8px; padding: 12px 16px; margin: 0 0 16px; }
     legend { padding: 0 6px; color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; }
-    label.row {
+    .row {
       display: flex;
       align-items: center;
       justify-content: space-between;
       gap: 16px;
       padding: 6px 0;
     }
-    label.row > span.name { flex: 1; }
-    label.row > span.hint { color: var(--muted); font-size: 12px; flex-basis: 100%; margin-top: 2px; }
+    .row > span.name { flex: 1; }
+    .row > span.hint { color: var(--muted); font-size: 12px; flex-basis: 100%; margin-top: 2px; }
     input[type="number"], input[type="text"], input[type="date"], select {
       font: inherit;
       color: inherit;
@@ -149,7 +149,9 @@
     <legend>Session keep-alive</legend>
     <label class="row"><span class="name">Keep the Agresso session warm</span><input type="checkbox" id="session_keepalive_enabled" /></label>
     <label class="row"><span class="name">Interval</span><span><input type="number" id="session_keepalive_minutes" min="1" max="120" step="1" /> min</span></label>
-    <label class="row"><span class="hint">Pings <code>/api/session/current?renew=true</code> and dispatches a benign activity event so Unit4's own heartbeat doesn't drop. Runs only when autosave is on.</span></label>
+    <label class="row"><span class="hint">Pings <code>/api/session/current?renew=true</code> from the background service worker on a <code>chrome.alarms</code> schedule, so it keeps running while the tab is backgrounded or frozen. Independent of the autosave toggle. Only fires while an Agresso tab is open.</span></label>
+    <div class="row"><span class="name">Last ping</span><span id="keepalive_status">—</span></div>
+    <div class="row"><span></span><button type="button" class="secondary" id="btn_keepalive_test">Test now</button></div>
   </fieldset>
 
   <fieldset>

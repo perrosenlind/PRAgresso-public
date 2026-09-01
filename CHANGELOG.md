@@ -4,6 +4,30 @@ All notable changes to **PRAgresso** are logged here.
 
 Versioning follows SemVer: patch (third digit) = bug fix, minor (second) = new feature, major (first) = breaking change.
 
+## 1.8.0 — 2026-09-01
+
+### Fixed
+- **The session keep-alive stopped firing whenever the tab was in the background — which is the only time it mattered.** Captured live from a tab that had been idle for an hour: `session keep-alive scheduled every 2 min` at 09:27, then nothing. No ping log, no error, no retry for the next 61 minutes, and a network capture armed across a scheduled ping boundary recorded **zero requests**. The server-side sliding session expired with nothing touching it and Agresso redirected the tab to `Logout.aspx`.
+
+  The ping was a `window.setInterval` in the content script. Chrome applies intensive throttling to timers in a backgrounded tab and freezes a non-audible one outright after roughly five minutes, which suspends them entirely — so a keep-alive built on a page timer is guaranteed to be asleep in exactly the situation it exists for. Being per-document made it worse independently of freezing: the countdown restarted on every page load, and Agresso is postback-heavy enough that a user moving between pages faster than the interval got no ping at all.
+
+  The ping now runs in the background service worker on a `chrome.alarms` schedule, which survives tab freezing, tab backgrounding and worker eviction. The alarm ticks at Chrome's one-minute floor and each tick decides whether the configured interval has actually elapsed, so a laptop that slept through four ticks pings on the first tick after wake instead of waiting out a fresh period. It fires only while a tab matching the Agresso host is open, and it derives the renew URL from that tab rather than hardcoding the app path. `alarms` is added to `permissions`.
+
+- **A failed ping is now audible.** The old tick logged through `logDebug`, which is off by default, and asserted nothing about the response — so a keep-alive that was renewing nothing looked exactly like one that was working. That is why the bug above went unnoticed for an hour. Every ping now logs `keepalive ok|fail <status> <timestamp>` in the page console of each open Agresso tab, and the outcome is *checked*: a non-2xx, a redirect toward the logout/login flow (`redirect: 'manual'`, so a 3xx is visible rather than silently followed), or a body that reads like the login page all count as failures. Three consecutive failures raise a red `!` on the toolbar icon. **Options → Session keep-alive** shows the last result and has a **Test now** button.
+
+- **`Logout.aspx` was missed over one word.** After an idle timeout the tab lands on the logout page, and `checkReturnToAppButton` was already polling it every 5 s, already scanning every button on the page rather than only dialogs. It matched with `text.includes('return to application')` — and CR 26.1 labels the button **"Return to the application"**. The article defeated the match, the recovery code walked past the button thirty times a minute, and the tab sat there.
+
+  Matching is now by pattern (`/return\s+to\s+(the\s+)?application/i`, and the Swedish equivalent) with whitespace collapsed. Full phrases still only: bare `tillbaka` was removed in an earlier version because it matches ordinary "Back" buttons, and that stays true. If the button is renamed outright, a fallback picks the logout form's submit that is *not* "Yes"/"Ja" — no `__doPostBack` ids or generated `ctl00$…` names, which move between builds. If neither finds anything for 30 s, it now says so instead of failing silently, the same way the save-button health check does.
+
+  Auto-return is guarded, because a wrong click here is worse than none. A deliberate log-out sets a per-tab `sessionStorage` marker from a capture-phase click handler and auto-return stands down entirely; the marker is cleared only once the app has been back for a minute, so a postback in the gap between the log-out click and the page it navigates to cannot re-arm it. Attempts are capped at two per ten minutes per tab, so a session that is dead server-side bounces back at most twice instead of looping between the app and the logout screen. Each decision logs one line: `logout page: auto-returned | skipped (user-initiated) | skipped (rate limit …)`.
+
+- **The save-button health check stopped crying wolf.** `Save button not found for 60s — SAVE_BUTTON_SELECTORS … may need updating` was firing on the **logout page**, which has no save button by design. The check keyed off the indicator existing, and the indicator is rendered on every Agresso page. Read as evidence of selector drift in CR 26.1, it sent a diagnosis after the wrong bug — the selectors were fine. It is now gated on `onTimesheetPage`, the same signal autosave itself uses.
+
+- **Re-injection no longer doubles every timer and listener.** Observed live: two complete init blocks 90 s apart inside one document — `performance.timeOrigin` unchanged, navigation type `navigate`, no reload — so the second was a content-script re-injection, not a page load. Nothing guarded against it, and every `init()` re-registers listeners, intervals and the mutation observer. A flag on the isolated world's `window` now makes the second injection return immediately.
+
+### Changed
+- **Session keep-alive and logout auto-return no longer sit behind the master autosave toggle.** 1.7.1 stated the opposite as a deliberate rule, and for page-mutating behaviour it still holds. These two are not page-mutating: they keep a session alive and put a timed-out tab back where it was. Gating them on autosave meant that running with autosave off — the documented way to test this extension against a live timesheet — also switched off every defence against being logged out. Each keeps its own option (`session_keepalive_enabled`, `auto_return_to_app`). The dialog sweep and every auto-click that dismisses something on screen remain gated on autosave, unchanged.
+
 ## 1.7.1 — 2026-08-26
 
 ### Fixed

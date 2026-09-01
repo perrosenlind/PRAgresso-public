@@ -107,6 +107,62 @@ function importJson() {
   }
 }
 
+// --- Session keep-alive status -------------------------------------------
+// The worker writes every ping outcome to chrome.storage.local under
+// `keepalive_state`. Surfacing it here is the point: the original failure was
+// invisible for an hour precisely because a dead keep-alive and a healthy one
+// looked identical from the outside.
+const KEEPALIVE_STATE_KEY = 'keepalive_state';
+
+function describeKeepAlive(state) {
+  if (!state || !state.lastResult) return { text: 'no ping recorded yet', bad: false };
+  const r = state.lastResult;
+  const when = new Date(r.ts);
+  const mins = Math.round((Date.now() - when.getTime()) / 60000);
+  const ago = Number.isFinite(mins) ? (mins < 1 ? 'just now' : `${mins} min ago`) : '';
+  if (r.ok) return { text: `ok (HTTP ${r.status}) — ${ago}`, bad: false };
+  const fails = Number(state.consecutiveFailures) || 1;
+  return { text: `FAILED: ${r.why}${r.status ? ` (HTTP ${r.status})` : ''} — ${ago}, ${fails} in a row`, bad: true };
+}
+
+async function renderKeepAlive() {
+  const el = $('keepalive_status');
+  if (!el) return;
+  let state = null;
+  try {
+    const got = await chrome.storage.local.get(KEEPALIVE_STATE_KEY);
+    state = got && got[KEEPALIVE_STATE_KEY];
+  } catch (err) { /* ignore */ }
+  const { text, bad } = describeKeepAlive(state);
+  el.textContent = text;
+  el.style.color = bad ? 'var(--danger)' : 'var(--muted)';
+}
+
+async function testKeepAlive() {
+  const btn = $('btn_keepalive_test');
+  if (btn) btn.disabled = true;
+  try {
+    const res = await chrome.runtime.sendMessage({ type: 'keepalive-ping-now' });
+    if (res && res.ok) {
+      await renderKeepAlive();
+      const r = res.state && res.state.lastResult;
+      // No open Agresso tab means the worker skipped the ping entirely rather
+      // than failing it — say so instead of showing a stale result as fresh.
+      if (!r || Date.now() - new Date(r.ts).getTime() > 15000) {
+        flash('No ping sent — is an Agresso tab open?', 'error');
+      } else {
+        flash(r.ok ? 'Ping ok ✓' : `Ping failed: ${r.why}`, r.ok ? null : 'error');
+      }
+    } else {
+      flash('Ping failed: ' + ((res && res.error) || 'no response from the service worker'), 'error');
+    }
+  } catch (err) {
+    flash('Ping failed: ' + err.message, 'error');
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
 async function copyJson() {
   try {
     await navigator.clipboard.writeText($('settings_json').value);
@@ -118,6 +174,13 @@ async function copyJson() {
 
 document.addEventListener('DOMContentLoaded', () => {
   loadAll();
+  renderKeepAlive();
+  $('btn_keepalive_test').addEventListener('click', testKeepAlive);
+  try {
+    chrome.storage.onChanged.addListener((changes, area) => {
+      if (area === 'local' && KEEPALIVE_STATE_KEY in changes) renderKeepAlive();
+    });
+  } catch (err) { /* ignore */ }
   $('btn_save').addEventListener('click', save);
   $('btn_reset').addEventListener('click', resetDefaults);
   $('btn_export').addEventListener('click', copyJson);

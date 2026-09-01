@@ -42,7 +42,8 @@ Released under the MIT License — see [`LICENSE`](LICENSE).
 - **Project-name label** under Delproj codes, preserved across sort / pagination and dashes inside customer names — including the row you are currently editing, where Agresso shows a bare code in a lookup editor and no name at all.
 - **Period-end reminder** with a one-click *Submit time report* banner when today is the last day of the shown period and the report status is not `Klar`.
 - **Auto-click** for "Stay signed in" / "Keep me signed in" / "Return to application" dialogs (individually toggleable).
-- **Proactive session keep-alive** — periodically pings Agresso's `/api/session/current?renew=true` endpoint so the session stays warm during long idle stretches. Also dispatches a benign `pointermove` to keep Unit4's own heartbeat primed. Runs everywhere in Agresso, not just the timesheet.
+- **Proactive session keep-alive** — periodically pings Agresso's `/api/session/current?renew=true` endpoint so the session stays warm during long idle stretches. Scheduled from the background service worker via `chrome.alarms`, **not** a page timer: Chrome freezes a backgrounded tab after a few minutes, which would suspend the very pings you need while away from the keyboard. Every ping asserts on its response and logs `keepalive ok|fail <status> <timestamp>`; three failures in a row raise a red `!` on the toolbar icon. Runs everywhere in Agresso, not just the timesheet, and independently of the autosave toggle.
+- **Idle-logout recovery** — if a timeout drops you on `Logout.aspx`, the extension clicks *Return to the application* for you. It stands down when *you* clicked log out, and gives up after two attempts in ten minutes so a dead session cannot loop.
 - **Column hiding** for `Bereds.` / `Arb.typ` via `display: none` (configurable; hides both static and edit-mode cells).
 - **Fakt. värde column total** — sums the billable-value column and renders the total into the otherwise-empty footer cell next to the existing hours `Sum` (24.00 in the screenshot world). Updates live as rows are added / edited.
 - **Delproj summary panel** — extra section above `Arbetstimmar` that groups every Tidtransaktion row by Delproj code and shows hours summed per group, so per-delprojekt totals are visible at a glance. Each row counts as `max(Sum, Fakt. värde)` (Sum used when Fakt. värde is empty; Fakt. värde used when it's higher than Sum). Rows registered in days (Tidsenhet `Dagar` — absence, vacation) are converted to hours first, using `Normaltimmar ÷ day columns` as the working-day length, so they line up with Agresso's own footer total. Collapsible via a double-arrow chevron in the panel header.
@@ -75,8 +76,8 @@ Click the extension toolbar icon to open the options page. Settings persist in `
 ## Files
 
 - `manifest.json` — MV3 extension manifest.
-- `cells.js` — main content script (autosave + layout + indicator + theming + keep-alive).
-- `background.js` — service worker for keyboard commands and toolbar-icon clicks.
+- `cells.js` — main content script (autosave + layout + indicator + theming + logout recovery).
+- `background.js` — service worker: keyboard commands, toolbar-icon clicks, and the `chrome.alarms`-driven session keep-alive.
 - `styles.css` — injected stylesheet (indicator, dark mode, column sizing, column hiding).
 - `options.html` / `options.js` — settings page.
 - `icons/` — 16/32/48 px toolbar icons.

@@ -1,4 +1,18 @@
 (() => {
+  // Chrome can inject this script into a document that already runs it. Seen
+  // live: two complete init blocks 90 s apart with no navigation in between
+  // (performance.timeOrigin unchanged, navigation type "navigate", no reload).
+  // Every init() run re-registers listeners, intervals and observers, so a
+  // second run silently doubles all of them. The same extension in the same
+  // frame shares one isolated world, so a global flag is enough to catch it.
+  try {
+    if (window.__PRAGRESSO_LOADED__) {
+      console.info('[PRAgresso]', 'cells.js already active in this document — skipping duplicate injection');
+      return;
+    }
+    window.__PRAGRESSO_LOADED__ = true;
+  } catch (e) { /* ignore */ }
+
   // --- Settings (hydrated from chrome.storage.local; see loadSettings below). ---
   // These are `let`s so the options page can change them live without a reload.
   const SETTING_DEFAULTS = {
@@ -32,8 +46,9 @@
     // session, which drowns the warnings that actually matter.
     debug_logging: false,
     // Proactive session keep-alive. Periodically calls Agresso's own session
-    // renew endpoint + dispatches a benign activity event so we aren't logged
-    // out during long idle stretches. See sessionKeepAliveTick.
+    // renew endpoint so we aren't logged out during long idle stretches. The
+    // schedule lives in the background service worker (chrome.alarms), not
+    // here — see background.js and onKeepAliveResult.
     session_keepalive_enabled: true,
     session_keepalive_minutes: 5,
     // Cache: last period-end ISO date we notified about. Shared across frames
@@ -2301,9 +2316,22 @@
   const OK_LABELS = ['ok', 'stäng', 'close', 'oké'];
   // Full phrases only. The bare 'tillbaka' / 'gå tillbaka' were removed: they
   // match ordinary "Back" buttons (e.g. inside the Utlägg draft popup), and
-  // checkReturnToAppButton would auto-click them. The logout-page button reads
-  // "Tillbaka till applikationen", which the full phrase still matches.
-  const RETURN_TO_APP_LABELS = ['tillbaka till applikationen', 'return to application'];
+  // checkReturnToAppButton would auto-click them.
+  //
+  // Patterns, not literals, because CR 26.1 labels the button "Return to the
+  // application" — with the article. The old `text.includes('return to
+  // application')` check therefore matched nothing at all on the English
+  // build, and an idle-timed-out tab sat on Logout.aspx untouched for an hour
+  // with the recovery code polling past it every 5 s. Optional articles and
+  // collapsed whitespace are cheaper to tolerate than to chase per build.
+  const RETURN_TO_APP_PATTERNS = [
+    /return\s+to\s+(the\s+)?application/i,
+    /tillbaka\s+till\s+(den\s+)?applikationen/i
+  ];
+  function matchesReturnToApp(text) {
+    if (!text) return false;
+    return RETURN_TO_APP_PATTERNS.some((re) => re.test(String(text).replace(/\s+/g, ' ').trim()));
+  }
   const STAY_SIGNED_IN_LABELS = ['förbli inloggad', 'håll mig inloggad', 'stanna inloggad', 'fortsätt vara inloggad', 'stay signed in', 'keep me signed in', 'remain signed in', 'stay logged in'];
   const CLOSE_SELECTORS = ['[aria-label="Close"]', '.close', '.k-i-close', '.modal-close'];
   const ACTIVITY_MESSAGE = 'agresso-autosave-activity';
@@ -3047,55 +3075,42 @@
   }
 
   // --- Session keep-alive ---
-  // Unit4/Agresso logs a user out after ~N minutes of inactivity. The built-in
-  // heartbeat (/api/session/current?renew=true) is driven by the app itself
-  // and can go silent while the user is reading, attending meetings, etc.
-  // This helper fires a same-origin fetch against that same endpoint on a
-  // configurable interval so the server-side session stays warm. As a belt-
-  // and-suspenders move we also dispatch a benign pointermove event, which
-  // keeps U4's own internal heartbeat primed. Runs only in the top frame (the
-  // inner <frame> will have been minimally initialised by then) and only when
-  // the master autosave toggle is on — turning autosave off disables all our
-  // page-mutating behaviour, keep-alive included.
-  let sessionKeepAliveTimer = null;
-  function sessionKeepAliveTick() {
+  //
+  // The ping itself now lives in the background service worker, on a
+  // chrome.alarms schedule — see background.js. It used to be a
+  // window.setInterval right here, which is precisely why it failed: Chrome
+  // throttles timers in a backgrounded tab and freezes a non-audible one
+  // outright after ~5 minutes, so the ping died exactly when the user was
+  // away and needed it. It also restarted its countdown on every document,
+  // and Agresso is postback-heavy enough that a user moving between pages
+  // faster than the interval never got a single ping.
+  //
+  // Do not reintroduce a timer here. What is left is the page-context half
+  // the worker cannot do itself: log the outcome where a person debugging a
+  // timesheet will actually see it, and reset Agresso's own client-side idle
+  // timers with a benign activity event.
+  let keepAliveFailuresLogged = 0;
+  function onKeepAliveResult(msg) {
+    // Runs in every frame; only the top frame reports, or one ping produces
+    // one line per frame.
+    try { if (window.top && window.top !== window) return; } catch (e) { return; }
+    const line = `keepalive ${msg.ok ? 'ok' : 'fail'} ${msg.status} ${msg.ts}`;
+    if (msg.ok) {
+      keepAliveFailuresLogged = 0;
+      console.info(LOG_PREFIX, line);
+    } else {
+      keepAliveFailuresLogged = msg.consecutiveFailures || (keepAliveFailuresLogged + 1);
+      console.warn(LOG_PREFIX, `${line} (${msg.why}) — consecutive failures: ${keepAliveFailuresLogged}`);
+    }
+    if (!msg.ok) return;
+    // Secondary: synthesise a benign pointermove so any idle-based client-side
+    // timers Agresso runs are reset too. The server-side sliding session is
+    // the worker's job; this is the browser-side half.
     try {
-      if (!getToggleEnabled()) return;
-      if (settings.session_keepalive_enabled === false) return;
-      // Build the renew URL relative to the app's own base so it works on
-      // any Agresso / Unit4 Cloud deployment using the /<app>/api/... convention
-      const base = (() => {
-        try {
-          const p = location.pathname || '/';
-          const m = p.match(/^\/[^\/]+\//);
-          return m ? m[0] : '/';
-        } catch (e) { return '/'; }
-      })();
-      const url = `${location.origin}${base}api/session/current?renew=true&_=${Date.now()}`;
-      fetch(url, { method: 'GET', credentials: 'include', cache: 'no-store' })
-        .then((r) => { try { logDebug('session keep-alive', r.status, url); } catch (e) {} })
-        .catch((err) => { try { logDebug('session keep-alive failed (non-fatal)', err && err.message); } catch (e) {} });
-      // Secondary: synthesise a benign pointermove so any idle-based client-
-      // side timers Agresso runs are also reset.
-      try {
-        const target = document.body || document.documentElement;
-        const ev = new PointerEvent('pointermove', { bubbles: true, cancelable: true, clientX: 0, clientY: 0, pointerType: 'mouse' });
-        target && target.dispatchEvent(ev);
-      } catch (e) { /* some browsers disallow synthetic PointerEvent */ }
-    } catch (e) { /* ignore */ }
-  }
-  function scheduleSessionKeepAlive() {
-    try { if (sessionKeepAliveTimer) clearInterval(sessionKeepAliveTimer); } catch (e) {}
-    sessionKeepAliveTimer = null;
-    if (settings.session_keepalive_enabled === false) return;
-    const minutes = Math.max(1, Math.min(120, Number(settings.session_keepalive_minutes) || 5));
-    const ms = minutes * 60 * 1000;
-    try {
-      sessionKeepAliveTimer = window.setInterval(sessionKeepAliveTick, ms);
-      // Fire once shortly after load so we don't have to wait a full interval.
-      window.setTimeout(sessionKeepAliveTick, 15000);
-      console.info(LOG_PREFIX, 'session keep-alive scheduled every', minutes, 'min');
-    } catch (e) { /* ignore */ }
+      const target = document.body || document.documentElement;
+      const ev = new PointerEvent('pointermove', { bubbles: true, cancelable: true, clientX: 0, clientY: 0, pointerType: 'mouse' });
+      if (target) target.dispatchEvent(ev);
+    } catch (e) { /* some browsers disallow synthetic PointerEvent */ }
   }
 
   // --- Save-button health check ---
@@ -3109,6 +3124,17 @@
     try {
       const indicator = document.getElementById(INDICATOR_ID);
       if (!indicator) return;
+      // Only meaningful on the timesheet. The indicator is rendered on every
+      // Agresso page, so keying off it alone made this warn about "stale
+      // selectors" on the Start panel, on Utlägg — and, most misleadingly, on
+      // Logout.aspx, a page that has no save button by design. That false
+      // positive was read as evidence of selector drift in CR 26.1 when the
+      // selectors were fine; the real bug was elsewhere entirely.
+      if (!onTimesheetPage) {
+        saveButtonMissingSince = 0;
+        saveButtonMissingLogged = false;
+        return;
+      }
       const btn = findPrimarySaveButton();
       if (btn) {
         saveButtonMissingSince = 0;
@@ -3881,10 +3907,7 @@
 
         // Then check for "return to application" buttons (higher priority after save)
         if (settings.auto_return_to_app !== false) {
-          const returnButton = buttons.find((btn) => {
-            const text = (btn.textContent || btn.value || '').toLowerCase().trim();
-            return RETURN_TO_APP_LABELS.some((label) => text.includes(label));
-          });
+          const returnButton = buttons.find((btn) => matchesReturnToApp(btn.textContent || btn.value || ''));
           if (returnButton && (allowHidden || isVisible(returnButton))) {
             return returnButton;
           }
@@ -3956,7 +3979,7 @@
     const text = (dialog.innerText || dialog.textContent || '').toLowerCase();
     // Check for logout/sign out related text and "return to application" button presence
     const hasLogoutText = text.includes('log out') || text.includes('logout') || text.includes('sign out') || text.includes('logga ut');
-    const hasReturnButton = RETURN_TO_APP_LABELS.some((label) => text.includes(label));
+    const hasReturnButton = matchesReturnToApp(text);
     return hasLogoutText && hasReturnButton;
   }
 
@@ -4181,67 +4204,213 @@
     try {
       sessionDialogPollTimer = window.setInterval(() => {
         try { sweepDialogs('session-poll', true); } catch (e) {}
+        try { clearStaleLogoutIntent(); } catch (e) {}
         try { checkReturnToAppButton(); } catch (e) {}
       }, SESSION_DIALOG_POLL_MS);
       console.info(LOG_PREFIX, 'session dialog watch started', { everyMs: SESSION_DIALOG_POLL_MS });
     } catch (e) { /* ignore */ }
   }
 
-  function checkReturnToAppButton() {
-    // Gate on both master autosave toggle and the per-feature option.
-    try {
-      if (!getToggleEnabled() || settings.auto_return_to_app === false) {
-        return false;
-      }
-    } catch (e) {
-      return false;
-    }
+  // --- Logout page recovery ---
+  //
+  // An idle timeout lands the tab on /Logout/Logout.aspx. In this build that
+  // is a full ASP.NET page — `form#main.Logout` holding two submit buttons,
+  // "Yes" and "Return to the application" — not a dialog, so the dialog sweep
+  // has nothing to match. Clicking the second button puts the user back where
+  // they were, with the session renewed if it is still alive.
+  //
+  // Every click here is guarded, because a wrong auto-click is worse than
+  // none: a deliberate log-out must be left alone, and a session that is
+  // already dead server-side bounces straight back to this page, so an
+  // ungated retry is a redirect loop between the app and the logout screen.
+  const LOGOUT_PATH_RE = /\/Logout\/Logout\.aspx$/i;
+  const LOGOUT_INTENT_KEY = 'pragresso.userLogout';
+  const AUTO_RETURN_LOG_KEY = 'pragresso.autoReturns';
+  const AUTO_RETURN_MAX = 2;
+  const AUTO_RETURN_WINDOW_MS = 10 * 60 * 1000;
+  // Controls whose label means "the user is leaving on purpose". Deliberately
+  // not matched against `href` alone for in-app links — see installLogoutIntentWatch.
+  const LOGOUT_INTENT_PATTERNS = [/\blogga\s+ut\b/i, /\blog\s*out\b/i, /\bsign\s*out\b/i, /\blogout\b/i];
 
-    // Look for "return to application" button on the page
+  function isLogoutPage() {
+    try { return LOGOUT_PATH_RE.test(location.pathname || ''); } catch (e) { return false; }
+  }
+
+  // sessionStorage is per-tab and per-origin, and Logout.aspx is same-origin
+  // with the app, so a marker written on the app page is still readable after
+  // the redirect. It is also scoped to the one tab that logged out, which is
+  // exactly the blast radius we want — another Agresso tab keeps auto-return.
+  function sessionFlagGet(key) { try { return window.sessionStorage.getItem(key); } catch (e) { return null; } }
+  function sessionFlagSet(key, val) { try { window.sessionStorage.setItem(key, val); } catch (e) { /* ignore */ } }
+  function sessionFlagClear(key) { try { window.sessionStorage.removeItem(key); } catch (e) { /* ignore */ } }
+
+  function installLogoutIntentWatch() {
+    const mark = (ev) => {
+      try {
+        const el = ev.target && ev.target.closest
+          ? ev.target.closest('a, button, input[type="button"], input[type="submit"], [role="menuitem"]')
+          : null;
+        if (!el) return;
+        const label = el.textContent || el.value ||
+          (el.getAttribute && (el.getAttribute('aria-label') || el.getAttribute('title'))) || '';
+        const href = (el.getAttribute && el.getAttribute('href')) || '';
+        if (!LOGOUT_INTENT_PATTERNS.some((re) => re.test(label)) && !/\/Logout\//i.test(href)) return;
+        const now = String(Date.now());
+        sessionFlagSet(LOGOUT_INTENT_KEY, now);
+        // The app's account menu can live in an inner frame while Logout.aspx
+        // is top-level, so mirror the marker up when the frames are reachable.
+        try {
+          if (window.top && window.top !== window) window.top.sessionStorage.setItem(LOGOUT_INTENT_KEY, now);
+        } catch (e) { /* cross-origin — the inner copy is the best we can do */ }
+        console.info(LOG_PREFIX, 'user-initiated log-out detected — auto-return disarmed');
+      } catch (e) { /* ignore */ }
+    };
+    try { document.addEventListener('click', mark, true); } catch (e) { /* ignore */ }
+  }
+
+  // Re-arm once we are demonstrably back in the app. Not cleared eagerly: a
+  // postback can re-run init in the gap between the log-out click and the page
+  // it navigates to, and clearing there would re-arm auto-return just in time
+  // to fight the user on the very logout they asked for.
+  function clearStaleLogoutIntent() {
+    if (isLogoutPage()) return;
+    const raw = sessionFlagGet(LOGOUT_INTENT_KEY);
+    if (!raw) return;
+    if (Date.now() - (Number(raw) || 0) < 60000) return;
+    sessionFlagClear(LOGOUT_INTENT_KEY);
+    console.info(LOG_PREFIX, 'back in the application — auto-return re-armed');
+  }
+
+  function autoReturnBudget() {
+    let arr = [];
+    try { arr = JSON.parse(sessionFlagGet(AUTO_RETURN_LOG_KEY) || '[]'); } catch (e) { arr = []; }
+    if (!Array.isArray(arr)) arr = [];
+    const cutoff = Date.now() - AUTO_RETURN_WINDOW_MS;
+    const recent = arr.filter((t) => Number(t) > cutoff);
+    return { left: AUTO_RETURN_MAX - recent.length, recent };
+  }
+
+  function findReturnToAppButton() {
     const docs = getAllDocuments();
     for (const doc of docs) {
       try {
         const buttons = Array.from(
           doc.querySelectorAll('button, input[type="button"], input[type="submit"], a')
         );
-
-        // Debug: log all button texts on logout page
-        if (window.location.href.includes('/Logout/Logout.aspx') && buttons.length > 0) {
-          const buttonTexts = buttons.map(b => (b.textContent || b.value || '').toLowerCase().trim()).filter(t => t);
-          if (buttonTexts.length > 0) {
-            logDebug('Buttons found on page:', buttonTexts);
-          }
-        }
-
-        const returnButton = buttons.find((btn) => {
-          const text = (btn.textContent || btn.value || '').toLowerCase().trim();
-          const matches = RETURN_TO_APP_LABELS.some((label) => text.includes(label));
-          if (matches) {
-            logDebug('Button text matches return-to-app label:', { text, matchedLabel: RETURN_TO_APP_LABELS.find(l => text.includes(l)) });
-          }
-          return matches;
-        });
-
-        if (returnButton) {
-          const visible = isVisible(returnButton);
-          logDebug('Return button found', { text: returnButton.textContent || returnButton.value, visible });
-          
-          if (visible) {
-            console.info(LOG_PREFIX, 'Clicking "return to application" button...', { text: returnButton.textContent || returnButton.value });
+        // Text match first. Never key off an ASP.NET `__doPostBack` id or a
+        // generated `ctl00$...` name — those move between builds.
+        const byLabel = buttons.find((b) => matchesReturnToApp(b.textContent || b.value || ''));
+        if (byLabel && isVisible(byLabel)) return byLabel;
+        // Fallback for a renamed button: on the logout form the only other
+        // submit is the "Yes" that confirms leaving, so "the submit that is
+        // not Yes" identifies the escape hatch without depending on wording.
+        if (isLogoutPage()) {
+          const submits = buttons.filter((b) => {
             try {
-              returnButton.click();
-              return true;
-            } catch (e) {
-              console.warn(LOG_PREFIX, 'Failed to click "return to application" button', e);
-            }
+              const isSubmit = b.type === 'submit' || (b.tagName === 'BUTTON' && b.type !== 'button');
+              return isSubmit && isVisible(b) && b.closest('form');
+            } catch (e) { return false; }
+          });
+          if (submits.length === 2) {
+            const notYes = submits.filter((b) => !/^\s*(yes|ja)\s*$/i.test(b.textContent || b.value || ''));
+            if (notYes.length === 1) return notYes[0];
           }
         }
-      } catch (e) {
-        // ignore cross-origin issues
-      }
+      } catch (e) { /* cross-origin doc — skip */ }
+    }
+    return null;
+  }
+
+  let logoutDecisionLogged = '';
+  function logLogoutDecisionOnce(decision) {
+    if (logoutDecisionLogged === decision) return;
+    logoutDecisionLogged = decision;
+    console.info(LOG_PREFIX, `logout page: ${decision}`);
+  }
+
+  // Same shape of health warning as checkSaveButtonHealth: an expected element
+  // that never appears must say so, or the next build's rename costs another
+  // hour of silence.
+  let logoutButtonMissingSince = 0;
+  let logoutButtonMissingLogged = false;
+
+  // One attempt per landing. init() calls this immediately and the standing
+  // session watch calls it again every 5 s, so without the flag a single visit
+  // would spend the whole retry budget inside ten seconds while the first
+  // click's postback was still in flight — leaving nothing for the next
+  // timeout, which is exactly what the budget is for.
+  let autoReturnClicked = false;
+
+  function handleLogoutPage() {
+    if (autoReturnClicked) return false;
+    if (settings.auto_return_to_app === false) {
+      logLogoutDecisionOnce('skipped (auto-return disabled in options)');
+      return false;
+    }
+    if (sessionFlagGet(LOGOUT_INTENT_KEY)) {
+      logLogoutDecisionOnce('skipped (user-initiated)');
+      return false;
+    }
+    const { left, recent } = autoReturnBudget();
+    if (left <= 0) {
+      logLogoutDecisionOnce(`skipped (rate limit — ${AUTO_RETURN_MAX} attempts in ${AUTO_RETURN_WINDOW_MS / 60000} min; the session is probably dead server-side)`);
+      return false;
     }
 
-    return false;
+    const btn = findReturnToAppButton();
+    if (!btn) {
+      const now = Date.now();
+      if (!logoutButtonMissingSince) logoutButtonMissingSince = now;
+      if (!logoutButtonMissingLogged && now - logoutButtonMissingSince >= HEALTH_CHECK_MS) {
+        logoutButtonMissingLogged = true;
+        console.warn(
+          LOG_PREFIX,
+          `logout page: no "return to the application" control found after ${Math.floor((now - logoutButtonMissingSince) / 1000)}s — ` +
+          'RETURN_TO_APP_PATTERNS and findReturnToAppButton may need updating for this Agresso build.'
+        );
+      }
+      return false;
+    }
+
+    autoReturnClicked = true;
+    try { sessionFlagSet(AUTO_RETURN_LOG_KEY, JSON.stringify([...recent, Date.now()])); } catch (e) { /* ignore */ }
+    console.info(LOG_PREFIX, `logout page: auto-returned (attempt ${recent.length + 1}/${AUTO_RETURN_MAX})`);
+    try {
+      btn.click();
+      return true;
+    } catch (e) {
+      console.warn(LOG_PREFIX, 'logout page: click on the return control failed', e);
+      return false;
+    }
+  }
+
+  function checkReturnToAppButton() {
+    // Gated on the per-feature option only. The master autosave toggle used to
+    // gate this too, which meant anyone running with autosave off — the
+    // documented way to test this extension — also lost every recovery from an
+    // idle logout. Returning a timed-out tab to the app mutates nothing the
+    // user typed, so it does not belong behind the autosave switch.
+    try {
+      if (settings.auto_return_to_app === false) return false;
+    } catch (e) {
+      return false;
+    }
+
+    if (isLogoutPage()) return handleLogoutPage();
+
+    // Off the logout page this is the dialog-hosted variant of the same
+    // button, reached from the sweep; the sweep has already decided the
+    // surrounding dialog is one we may dismiss.
+    const btn = findReturnToAppButton();
+    if (!btn) return false;
+    console.info(LOG_PREFIX, 'Clicking "return to application" button...', { text: btn.textContent || btn.value });
+    try {
+      btn.click();
+      return true;
+    } catch (e) {
+      console.warn(LOG_PREFIX, 'Failed to click "return to application" button', e);
+      return false;
+    }
   }
 
   // --- Period end detection and notification ---
@@ -6350,6 +6519,7 @@
       document.addEventListener('change', onDropdownClose, true);
       document.addEventListener('focusout', onDropdownClose, true);
       bindActivityListeners();
+      installLogoutIntentWatch();
       scheduleLayoutRefresh();
       return;
     }
@@ -6376,11 +6546,13 @@
     // Kick off a short sweep at load in case a dialog is already present.
     startDialogSweep('init');
 
-    // Special handling for logout page: continuously check for "return to application" button
-    if (window.location.href.includes('/Logout/Logout.aspx')) {
-      console.info(LOG_PREFIX, 'Logout page detected, starting extended dialog sweep');
-      // Start a longer sweep for the logout page
-      dialogSweepEndAt = Date.now() + 30000; // 30 seconds instead of 8
+    // The logout page is a page, not a dialog — form#main.Logout with two
+    // plain submit buttons. Stretching the dialog sweep at it (what this used
+    // to do) matched nothing for 30 s and then gave up. handleLogoutPage,
+    // driven by the standing session watch below, handles it directly.
+    if (isLogoutPage()) {
+      console.info(LOG_PREFIX, 'Logout page detected — arming guarded auto-return');
+      try { handleLogoutPage(); } catch (e) { /* ignore */ }
     }
 
     refreshNoChangesBannerState('init');
@@ -6399,8 +6571,14 @@
       window.setInterval(checkSaveButtonHealth, HEALTH_CHECK_MS);
     } catch (e) {}
 
-    // Proactive session keep-alive — see sessionKeepAliveTick docstring.
-    scheduleSessionKeepAlive();
+    // Session keep-alive is scheduled by the background service worker off a
+    // chrome.alarms tick — nothing to start here. See onKeepAliveResult.
+
+    // Watch for a deliberate log-out so the logout-page recovery below knows
+    // to stay out of the way. Must be armed on the app page, since that is
+    // where the log-out control lives.
+    installLogoutIntentWatch();
+    clearStaleLogoutIntent();
 
     // ...and a standing watch for the dialog that appears when it was not
     // enough. See startSessionDialogWatch for why the event-driven sweeps
@@ -6477,7 +6655,6 @@
   function onSettingsChanged(changes) {
     let layoutDirty = false;
     let themeDirty = false;
-    let keepAliveDirty = false;
     let timingDirty = false;
     for (const [key, { newValue }] of Object.entries(changes)) {
       if (!(key in SETTING_DEFAULTS)) continue;
@@ -6485,7 +6662,6 @@
       if (key in TIMING_BOUNDS) timingDirty = true;
       if (key === 'hide_ace_code' || key === 'hide_work_type') layoutDirty = true;
       if (key === 'theme') themeDirty = true;
-      if (key === 'session_keepalive_enabled' || key === 'session_keepalive_minutes') keepAliveDirty = true;
       if (key === 'autosave_enabled') {
         try { applyToggleState(!!newValue); } catch (e) {}
       }
@@ -6501,9 +6677,6 @@
     }
     if (themeDirty) {
       try { applyTheme(); } catch (e) {}
-    }
-    if (keepAliveDirty) {
-      try { scheduleSessionKeepAlive(); } catch (e) {}
     }
     try { addProjectLabels(); } catch (e) {}
     try { scheduleDelprojSummary(); } catch (e) {}
@@ -6587,6 +6760,8 @@
           try { setToggleEnabled(!getToggleEnabled()); } catch (e) {}
         } else if (msg.type === 'activity-broadcast') {
           try { markActivity(); } catch (e) {}
+        } else if (msg.type === 'keepalive-result') {
+          try { onKeepAliveResult(msg); } catch (e) {}
         }
       });
     }
