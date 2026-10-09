@@ -20,6 +20,7 @@ const DEFAULTS = {
   show_delproj_summary: true,
   show_semester_summary: true,
   arbetstimmar_collapsed_default: false,
+  mark_full_days: true,
   sticky_edit_values: true,
   flag_unknown_lookup_values: true,
   theme: 'auto',
@@ -27,7 +28,7 @@ const DEFAULTS = {
 };
 
 const NUMBER_KEYS = ['IDLE_TIMEOUT_MS', 'SAVE_COOLDOWN_MS', 'DIALOG_SWEEP_MS', 'session_keepalive_minutes'];
-const BOOL_KEYS = ['reminder_enabled', 'auto_stay_signed_in', 'auto_return_to_app', 'session_keepalive_enabled', 'hide_ace_code', 'hide_work_type', 'show_project_label', 'show_delproj_summary', 'show_semester_summary', 'arbetstimmar_collapsed_default', 'sticky_edit_values', 'flag_unknown_lookup_values', 'debug_logging'];
+const BOOL_KEYS = ['reminder_enabled', 'auto_stay_signed_in', 'auto_return_to_app', 'session_keepalive_enabled', 'hide_ace_code', 'hide_work_type', 'show_project_label', 'show_delproj_summary', 'show_semester_summary', 'arbetstimmar_collapsed_default', 'mark_full_days', 'sticky_edit_values', 'flag_unknown_lookup_values', 'debug_logging'];
 const STRING_KEYS = ['reminder_lang', 'period_override', 'theme'];
 
 function applyTheme(value) {

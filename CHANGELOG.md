@@ -4,6 +4,19 @@ All notable changes to **PRAgresso** are logged here.
 
 Versioning follows SemVer: patch (third digit) = bug fix, minor (second) = new feature, major (first) = breaking change.
 
+## 1.9.0 — 2026-10-09
+
+### Added
+- **A day whose scheduled hours are fully registered now turns green in the `∑` row.** On *Daglig tidregistrering*, once a day's `Återstående timmar` in the `Arbetstimmar` grid reaches 0, that day's cell in the Tidtransaktion `∑` row is painted dark green with white bold text. Hovering any day shows `Återstår X.XX h`, or `Dagen är full` once it is. Days with no scheduled hours (weekends, holidays) are never marked. New **Layout → Mark full days in the time registration** option, on by default.
+
+  Details that matter for trusting it:
+  - **Both grids carry dynamic ids** (`b_s95_g95s96`, `b_s89_g89s90` seen live), so nothing is hardcoded. Sum cells are matched by id suffix: `__sumRow_normal_hrs<N>` for Återstående, `__sumRow_reg_value<N>` for `∑`. The digits are required, because the digit-less `__sumRow_reg_value` is the period total. Days are paired across the two grids on the `dd/mm` in each grid's own header (`Fre09/10`), read at the sum cell's `cellIndex`. Header ids end in a random suffix, so `N` is never parsed from them.
+  - **The target is snapshotted, not derived.** `Från`/`Till` cannot give it (08:00–17:00 is 9 h on an 8 h day), and it is not yet verified whether Agresso recalculates `Återstående` as you type or only on save. Each day's target is recorded as `Återstående + ∑` whenever `Återstående` changes (or is first seen), and the hours left are target − `∑`. If `Återstående` is live, that equals `Återstående`. If it only moves on save, the marker still follows edits to the `∑` row immediately. An empty `∑` cell counts as 0 h, so a day's first entry is never folded into its target.
+  - **It is live in the frame the grids actually live in.** Both grids sit in `ContentContainer.aspx`, an iframe, and `init()` gives frames no MutationObserver (`initObservers` is top-frame only). Frames now get one narrow observer for this feature: `childList` / `subtree` / `characterData`, throttled to 150 ms, with no attributes, so its own writes never wake it. The top frame reuses its existing observer rather than stacking a second one. Since that observer does watch `title` on `<td>`s, the mark and title are only ever written when they change. Every screen without a grid footer exits on a single `querySelector('tr.SumItem')`.
+  - **Dark mode keeps the colour.** The page-wide `invert + hue-rotate` would render the fill pale green with black text, so under `html.agresso-dark-page` the marked cell is counter-inverted, the same way the indicator is.
+  - **The styles are injected, not shipped in `styles.css`.** That was the first attempt, and on the live grid it lost a cascade tie: manifest CSS is applied ahead of the page's own sheets, so Agresso's sum-cell background beat the green fill while the ring and the white text still applied. In dark mode that came out as a pale grey cell with unreadable text. The rules now go into a `<style>` that `cells.js` appends to `<head>` once a grid with sum rows is found, after Agresso's sheets.
+  - **Read-only towards Unit4.** Nothing here clicks *Uppdatera* or triggers a postback. No permissions added.
+
 ## 1.8.0 — 2026-09-01
 
 ### Fixed

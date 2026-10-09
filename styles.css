@@ -866,3 +866,9 @@ tr.EditRow input[data-pragresso-badvalue="1"] {
 tr.EditRow input[data-pragresso-sticky="1"][data-pragresso-badvalue="1"] {
     box-shadow: inset 0 0 0 2px #dc2626, inset 3px 0 0 0 #2563eb !important;
 }
+
+/* ── Full day ──────────────────────────────────────────────────────────
+ * The full-day marker's rules are injected by cells.js (DAY_DONE_CSS), not
+ * kept here: from this file they lose a cascade tie to Agresso's own
+ * sum-cell background. See ensureDayDoneStyle.
+ */

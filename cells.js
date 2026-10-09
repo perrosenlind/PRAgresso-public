@@ -31,6 +31,9 @@
     show_delproj_summary: true,
     show_semester_summary: true,
     arbetstimmar_collapsed_default: false,
+    // Paint a day's cell in the Tidtransaktion ∑ row green once that day's
+    // Återstående timmar reaches 0. See applyDayDoneMarkers.
+    mark_full_days: true,
     // Hold user-typed Beskrivningstext and day hours across the postbacks
     // that a Delproj / Aktivitet change triggers. See applyStickyEditValues.
     sticky_edit_values: true,
@@ -1739,6 +1742,183 @@
     arbetstimmarDefaultCollapseApplied = true;
   }
 
+  // ── Full-day marker ─────────────────────────────────────────────────────
+  // Paint a day's cell in the Tidtransaktion ∑ row green once that day's
+  // Återstående timmar (the Arbetstimmar grid's sum row) reaches 0, so a
+  // finished day reads at a glance. Days with no scheduled hours — weekends,
+  // holidays — are never marked. Read-only: nothing here clicks Uppdatera or
+  // otherwise posts back.
+  //
+  // Both grids carry dynamic ids (b_s95_g95s96, b_s89_g89s90, ...), so sum
+  // cells are matched by id SUFFIX:
+  //   Arbetstimmar    <grid>__sumRow_normal_hrs<N>   Återstående, per day
+  //   Tidtransaktion  <grid>__sumRow_reg_value<N>    ∑, per day
+  // The digits are required: the digit-less __sumRow_reg_value is the period
+  // total. Days are paired across the grids on the dd/mm in each grid's own
+  // header (`Fre09/10`), read at the sum cell's cellIndex — header ids end in
+  // a random suffix, so N cannot be recovered from them.
+  //
+  // The target cannot be derived from Från/Till (08:00–17:00 spans 9 h on an
+  // 8 h day), and whether Agresso recalculates Återstående while you type or
+  // only on save is unverified. So each day's target is snapshotted as
+  // Återstående + ∑ whenever Återstående changes (or is first seen), and the
+  // hours left are target − ∑. If Återstående is live that equals
+  // Återstående; if it only moves on save, the marker still follows edits to
+  // the ∑ row straight away.
+  const DAY_DONE_MARK = 'data-pragresso-daydone';
+  const DAY_REMAINING_ID_RE = /__sumRow_normal_hrs\d+$/;
+  const DAY_SUM_ID_RE = /__sumRow_reg_value\d+$/;
+  const DAY_HEADER_DATE_RE = /\d{1,2}\/\d{1,2}/;
+  const DAY_DONE_THROTTLE_MS = 150;
+  // Keyed by dd/mm, so another period starts with fresh entries.
+  const dayDoneTarget = new Map();
+  const dayDoneLastRemaining = new Map();
+  let dayDoneQueued = false;
+
+  // These rules are injected rather than shipped in styles.css. Manifest CSS
+  // cascades ahead of the page's own sheets, and on the live grid Agresso's
+  // sum-cell background won the tie: the ring and the white text applied but
+  // the fill stayed Agresso's grey, which dark mode turned into a pale cell
+  // with unreadable text. A <style> appended to <head> comes after Agresso's
+  // sheets — the arrangement the standalone prototype was verified with.
+  //
+  // The page-wide dark theme (`invert + hue-rotate`) would render the fill
+  // pale green and the text black, so under it the marked cell is
+  // counter-inverted, the way styles.css does for our own indicator. The
+  // value sits in a nested <div class="DivOverflowNoWrap ww">, hence the
+  // descendant colour rule. Inset ring rather than a border, so the cell's
+  // box is untouched.
+  const DAY_DONE_STYLE_ID = 'pragresso-daydone-style';
+  const DAY_DONE_CSS = `
+    tr.SumItem > td[${DAY_DONE_MARK}="1"] {
+      background: #2e7d32 !important;
+      box-shadow: inset 0 0 0 1px #66bb6a;
+    }
+    tr.SumItem > td[${DAY_DONE_MARK}="1"],
+    tr.SumItem > td[${DAY_DONE_MARK}="1"] * {
+      color: #fff !important;
+      font-weight: 600 !important;
+    }
+    html.agresso-dark-page tr.SumItem > td[${DAY_DONE_MARK}="1"] {
+      filter: invert(1) hue-rotate(180deg);
+    }`;
+
+  function ensureDayDoneStyle() {
+    if (document.getElementById(DAY_DONE_STYLE_ID)) return;
+    const style = document.createElement('style');
+    style.id = DAY_DONE_STYLE_ID;
+    style.textContent = DAY_DONE_CSS;
+    (document.head || document.documentElement).appendChild(style);
+  }
+
+  function roundHours(n) {
+    return Math.round(n * 100) / 100;
+  }
+
+  // dd/mm → sum-row cell, from the first sum row holding a cell that matches.
+  function sumCellsByDate(idRe) {
+    const out = new Map();
+    const first = Array.from(document.querySelectorAll('tr.SumItem > td[id]')).find((td) => idRe.test(td.id));
+    const table = first ? first.closest('table') : null;
+    const headerRow = table ? table.rows[0] : null;
+    if (!headerRow) return out;
+    for (const td of first.parentElement.cells) {
+      if (!idRe.test(td.id)) continue;
+      const header = headerRow.cells[td.cellIndex];
+      const m = header && (header.textContent || '').match(DAY_HEADER_DATE_RE);
+      if (m) out.set(m[0], td);
+    }
+    return out;
+  }
+
+  // The mark doubles as ownership of the cell's title: clearing only touches
+  // cells we marked, so a title Agresso set itself is never stripped. Writes
+  // happen on change only — the top frame's observer watches `title` on
+  // <td>s, and an unconditional write would wake it on every pass.
+  function setDayDoneMark(td, value, title) {
+    if (value === null) {
+      if (!td.hasAttribute(DAY_DONE_MARK)) return;
+      td.removeAttribute(DAY_DONE_MARK);
+      td.removeAttribute('title');
+      return;
+    }
+    if (td.getAttribute(DAY_DONE_MARK) !== value) td.setAttribute(DAY_DONE_MARK, value);
+    if (td.getAttribute('title') !== title) td.setAttribute('title', title);
+  }
+
+  function applyDayDoneMarkers() {
+    try {
+      // Runs off a document-wide observer on every Agresso screen; nearly
+      // none of them have a grid footer, and this is all they pay.
+      if (!document.querySelector('tr.SumItem')) return;
+      if (settings.mark_full_days === false) {
+        document.querySelectorAll(`td[${DAY_DONE_MARK}]`).forEach((td) => setDayDoneMark(td, null));
+        return;
+      }
+      const remaining = sumCellsByDate(DAY_REMAINING_ID_RE);
+      const sums = sumCellsByDate(DAY_SUM_ID_RE);
+      if (!remaining.size || !sums.size) return;
+      ensureDayDoneStyle();
+
+      for (const [date, sumCell] of sums) {
+        // An empty ∑ cell is 0 h registered, not unknown. Skipping it would
+        // make the day's first entry part of its snapshotted target.
+        const sumText = (sumCell.textContent || '').trim();
+        const sum = sumText ? parseAgressoNum(sumText) : 0;
+        const remCell = remaining.get(date);
+        const rem = remCell ? parseAgressoNum(remCell.textContent) : NaN;
+        if (!Number.isFinite(sum) || !Number.isFinite(rem)) {
+          setDayDoneMark(sumCell, null);
+          continue;
+        }
+        const r = roundHours(rem);
+        const s = roundHours(sum);
+        if (!dayDoneTarget.has(date) || dayDoneLastRemaining.get(date) !== r) {
+          dayDoneLastRemaining.set(date, r);
+          dayDoneTarget.set(date, roundHours(r + s));
+        }
+        const target = dayDoneTarget.get(date);
+        if (target <= 0) {
+          setDayDoneMark(sumCell, null);
+          continue;
+        }
+        const left = roundHours(target - s);
+        const done = left <= 0;
+        setDayDoneMark(sumCell, done ? '1' : '0', done ? 'Dagen är full' : `Återstår ${left.toFixed(2)} h`);
+      }
+    } catch (e) { /* ignore */ }
+  }
+
+  // Throttled, not debounced: Agresso's churn must not keep pushing the
+  // repaint back while the ∑ row has already changed.
+  function scheduleDayDoneMarkers() {
+    if (dayDoneQueued) return;
+    dayDoneQueued = true;
+    window.setTimeout(() => {
+      dayDoneQueued = false;
+      applyDayDoneMarkers();
+    }, DAY_DONE_THROTTLE_MS);
+  }
+
+  // Both grids live in ContentContainer.aspx, an iframe, and init() gives
+  // frames no MutationObserver — initObservers is top-frame only. The input
+  // / blur refreshes a frame does get are timed off the user's keystrokes,
+  // not off Agresso rewriting the ∑ row, so frames get one narrow observer
+  // of their own. No attributes: our own mark and title writes must not
+  // wake it.
+  let _dayDoneWatchInstalled = false;
+  function installDayDoneWatch() {
+    if (_dayDoneWatchInstalled) return;
+    _dayDoneWatchInstalled = true;
+    try {
+      new MutationObserver(scheduleDayDoneMarkers).observe(document.documentElement, {
+        childList: true,
+        subtree: true,
+        characterData: true
+      });
+    } catch (e) { /* ignore */ }
+  }
+
   // Hide the stray hidden-column editor cells that the CSS hide sheet can't
   // reach on absence rows.
   //
@@ -2302,6 +2482,7 @@
     try { scheduleDelprojSummary(); } catch (e) {}
     try { scheduleSemesterSummary(); } catch (e) {}
     try { applyArbetstimmarDefaultCollapse(); } catch (e) {}
+    try { applyDayDoneMarkers(); } catch (e) {}
     try { installEditRowWidthLock(); } catch (e) {}
     try { installLookupValidation(); } catch (e) {}
     try { applyLookupValidation(); } catch (e) {}
@@ -6445,6 +6626,7 @@
       }
       refreshNoChangesBannerState('mutation');
       scheduleLayoutRefresh();
+      scheduleDayDoneMarkers();
         // Check whether today is the last day in the currently shown period and notify once.
         // Run this after a short debounce so transient DOM swaps during navigation
         // don't cause false negatives/positives.
@@ -6520,6 +6702,7 @@
       document.addEventListener('focusout', onDropdownClose, true);
       bindActivityListeners();
       installLogoutIntentWatch();
+      installDayDoneWatch();
       scheduleLayoutRefresh();
       return;
     }
@@ -6683,6 +6866,7 @@
     try { scheduleSemesterSummary(); } catch (e) {}
     try { applyStickyEditValues(); } catch (e) {}
     try { applyLookupValidation(); } catch (e) {}
+    try { applyDayDoneMarkers(); } catch (e) {}
     // If the user just enabled "Minimize Arbetstimmar by default", honour
     // it on the next render pass. We don't collapse retroactively here —
     // the one-shot flag prevents that — but turning it on then opening a
