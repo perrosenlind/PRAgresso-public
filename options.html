@@ -14,6 +14,7 @@
       --border: #e5e7eb;
       --accent: #2563eb;
       --danger: #b02a2a;
+      --ok: #15803d;
     }
     @media (prefers-color-scheme: dark) {
       :root:not([data-theme="light"]) {
@@ -23,6 +24,7 @@
         --border: #2c2e33;
         --accent: #5a8dee;
         --danger: #ef5350;
+      --ok: #4ade80;
       }
     }
     html[data-theme="dark"] {
@@ -32,6 +34,7 @@
       --border: #2c2e33;
       --accent: #5a8dee;
       --danger: #ef5350;
+      --ok: #4ade80;
     }
     html[data-theme="light"] {
       --fg: #1d1f22;
@@ -40,6 +43,7 @@
       --border: #e5e7eb;
       --accent: #2563eb;
       --danger: #b02a2a;
+      --ok: #15803d;
     }
     /* Advania brand theme — Indigo (#4f0077) primary, Pink (#cc0085)
        accent, Dark Grey (#303030) canvas, Light Grey (#edeef0) fg. */
@@ -50,6 +54,7 @@
       --border: #4f0077;
       --accent: #cc0085;
       --danger: #d54429;
+      --ok: #4ade80;
     }
     * { box-sizing: border-box; }
     body {
@@ -97,6 +102,13 @@
     button.danger { background: transparent; color: var(--danger); border: 1px solid var(--danger); }
     .actions { display: flex; gap: 10px; margin: 20px 0 0; flex-wrap: wrap; }
     .status { margin-top: 12px; color: var(--muted); min-height: 1.2em; font-size: 13px; }
+    table.lib { width: 100%; border-collapse: collapse; margin: 8px 0; font-size: 13px; }
+    table.lib th, table.lib td { text-align: left; padding: 4px 6px; border-bottom: 1px solid var(--border); }
+    table.lib th { color: var(--muted); font-weight: 500; font-size: 12px; }
+    table.lib td.empty { color: var(--muted); font-style: italic; }
+    table.lib button { padding: 2px 8px; font-size: 12px; }
+    .lib-add { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+    .lib-add input { flex: 1; min-width: 140px; }
     textarea { width: 100%; min-height: 120px; font: 12px/1.4 ui-monospace, Menlo, Consolas, monospace; background: transparent; color: inherit; border: 1px solid var(--border); border-radius: 6px; padding: 8px; }
   </style>
 </head>
@@ -167,6 +179,20 @@
     <label class="row"><span class="hint">Triggers the section's own collapse toggle once per page load. Re-open it manually any time — we only collapse on first render.</span></label>
     <label class="row"><span class="name">Mark full days in the time registration</span><input type="checkbox" id="mark_full_days" /></label>
     <label class="row"><span class="hint">Turns a day's cell in the Tidtransaktion <code>∑</code> row green once its <code>Återstående timmar</code> reaches 0; hover a day to see the hours left. Days with no scheduled hours (weekends, holidays) are never marked.</span></label>
+    <label class="row"><span class="name">Mark rows where <code>Fakt. värde</code> ≠ <code>Sum</code></span><input type="checkbox" id="mark_adjusted_rows" /></label>
+    <label class="row"><span class="hint">Tints a Tidtransaktion row in the theme colour when its billed hours were adjusted away from the hours reported on it (e.g. 2.00 reported, 4.00 billed); hover the row for the difference. Rows with <code>Fakt. värde</code> 0 (non-billable) and rows registered in days are never marked. Off by default.</span></label>
+  </fieldset>
+
+  <fieldset>
+    <legend>Widescreen layout</legend>
+    <label class="row"><span class="name">Layout on the time-registration page</span>
+      <select id="wide_layout">
+        <option value="off">Off (Agresso's own layout)</option>
+        <option value="right">A — header bar, library + summary to the right</option>
+        <option value="rail">B — header bar, summary chips, library rail on the left</option>
+      </select>
+    </label>
+    <label class="row"><span class="hint">The layouts from the widescreen mockups: a compact header bar with the period's key figures, Agresso's <em>Tidrapport för</em> and <em>Arbetstimmar</em> tucked behind <em>Period &amp; arbetstimmar ▾</em> (their fields keep working), and the Delproj library beside Tidtransaktion where it stays in view while you scroll. A puts the summary in the column as well; B shows it as chips above the grid and adds filters to the library rail. Agresso's own sections are never moved. The library needs <em>Enable the Delproj library</em> on, and the summary needs <em>Show Delproj summary panel</em>. Off by default.</span></label>
   </fieldset>
 
   <fieldset>
@@ -175,6 +201,34 @@
     <label class="row"><span class="hint">Picking a <code>Delproj</code> or <code>Aktivitet</code> makes Agresso re-render the row and replace your description with the project / activity default text. With this on, the text you typed is written back after every such change — so you can write the description and punch the hours first and fill in the codes later. Hours are only restored into cells Agresso blanked, never over a value it recalculated. Clear the field to release the hold; held fields get a blue edge.</span></label>
     <label class="row"><span class="name">Flag values the row's menu doesn't offer</span><input type="checkbox" id="flag_unknown_lookup_values" /></label>
     <label class="row"><span class="hint">Marks a <code>Tidkod</code> / <code>Delproj</code> / <code>Aktivitet</code> editor red when what you typed isn't selectable for that row. <code>Aktivitet</code> is scoped to the row's own <code>Delproj</code>, so a code that is perfectly valid on one agreement can be wrong on the next — the check is per row, against the menu Agresso itself offers there.</span></label>
+  </fieldset>
+
+  <fieldset>
+    <legend>Delproj library</legend>
+    <label class="row"><span class="name">Enable the Delproj library</span><input type="checkbox" id="delproj_library_enabled" /></label>
+    <label class="row"><span class="hint">While on, every Delproj code on a saved Tidtransaktion row is remembered. Add your own codes below for projects you have not reported on yet. The time-registration page gets a <em>Delproj bibliotek</em> panel where you can search, click a code to fill it into the row you are editing, and import the codes from the last N weeks or months. Off by default; turning it off keeps the stored library.</span></label>
+    <table class="lib" id="lib_table">
+      <thead><tr><th>Delproj</th><th>Name / note</th><th>Source</th><th>Last used</th><th></th></tr></thead>
+      <tbody id="lib_body"></tbody>
+    </table>
+    <div class="lib-add">
+      <input type="text" id="lib_code" placeholder="Code, e.g. 123456-7" />
+      <input type="text" id="lib_name" placeholder="Name / note (optional)" />
+      <button type="button" class="secondary" id="btn_lib_add">Add</button>
+    </div>
+    <div class="actions">
+      <button type="button" class="danger" id="btn_lib_clear_auto">Forget auto-collected codes</button>
+    </div>
+  </fieldset>
+
+  <fieldset>
+    <legend>AI agents (MCP)</legend>
+    <label class="row"><span class="name">Allow AI agents (MCP)</span><input type="checkbox" id="mcp_enabled" /></label>
+    <label class="row"><span class="hint">Lets a local AI agent (Claude Code, Claude Desktop or any MCP client) read the open time report and the Delproj library, add and fill in rows, and <strong>save</strong> the report. It can never submit the report. Everything happens in your open Agresso tab, so you see every change. Needs a one-time setup of the local bridge (Node.js): run the commands below <strong>from the extension's folder</strong> (the one holding <code>manifest.json</code>), then restart your agent. Off by default.</span></label>
+    <div class="row"><span class="name">Extension id</span><code id="mcp_ext_id">—</code></div>
+    <textarea id="mcp_setup" readonly spellcheck="false" style="min-height: 70px;"></textarea>
+    <div class="row"><span class="name">Bridge</span><span id="mcp_status">—</span></div>
+    <div class="row"><span></span><button type="button" class="secondary" id="btn_mcp_reconnect">Reconnect</button></div>
   </fieldset>
 
   <fieldset>

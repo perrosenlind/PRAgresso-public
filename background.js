@@ -246,6 +246,11 @@ ensureKeepAliveAlarm();
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (!msg || typeof msg !== 'object') return;
+  // The header's "Spara som Klar": a frame asks for the top frame's save.
+  if (msg.type === 'relay-save-now' && sender.tab && sender.tab.id != null) {
+    chrome.tabs.sendMessage(sender.tab.id, { type: 'save-now' }, { frameId: 0 }).catch(() => {});
+    return;
+  }
   if (msg.type === 'relay-activity' && sender.tab && sender.tab.id != null) {
     broadcast(sender.tab.id, { type: 'activity-broadcast', from: sender.frameId ?? null });
     return;
@@ -260,3 +265,114 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true;
   }
 });
+
+// --- MCP bridge (opt-in) ---------------------------------------------------
+// With `mcp_enabled` on, the worker holds a Native Messaging port to the
+// local `se.pragresso.mcp` host (mcp/pragresso-mcp.js). An AI agent's tool
+// call arrives as {type:'call', id, tool, args}; it is executed in the
+// Agresso tab by the content script and answered as {type:'result', id, ok,
+// result|error}. An open native port also keeps this worker alive.
+//
+// Which tools exist and what they may do is decided HERE and in cells.js,
+// never by the host: submitting a report is not a tool, and anything not
+// listed is refused.
+const MCP_HOST = 'se.pragresso.mcp';
+const MCP_STATE_KEY = 'mcp_state';
+const MCP_TOOLS = new Set(['get_timesheet', 'list_library', 'add_library_code', 'add_row', 'update_row', 'save_timesheet']);
+// save_timesheet runs in the top frame, where autosave's own save lives, and
+// so do add_row / update_row, which must outlive the grid frame's postbacks;
+// everything else runs in the frame that holds the Tidtransaktion grid.
+const MCP_TOP_FRAME_TOOLS = new Set(['save_timesheet', 'add_row', 'update_row']);
+let mcpPort = null;
+
+async function writeMcpState(patch) {
+  try {
+    const got = await chrome.storage.local.get(MCP_STATE_KEY);
+    const st = Object.assign({}, got && got[MCP_STATE_KEY], patch, { ts: new Date().toISOString() });
+    await chrome.storage.local.set({ [MCP_STATE_KEY]: st });
+  } catch (e) { /* ignore */ }
+}
+
+async function mcpAgressoTab() {
+  const tabs = await chrome.tabs.query({ url: AGRESSO_TAB_MATCH });
+  if (!tabs.length) return null;
+  // Prefer the tab the user is looking at, then the most recently used.
+  return tabs.find((t) => t.active) || tabs.sort((a, b) => (b.lastAccessed || 0) - (a.lastAccessed || 0))[0];
+}
+
+async function mcpExecute(tool, args) {
+  if (!MCP_TOOLS.has(tool)) throw new Error(`Tool not allowed: ${tool}`);
+  const tab = await mcpAgressoTab();
+  if (!tab || tab.id == null) throw new Error('No Agresso tab is open in Chrome.');
+  const msg = { type: 'mcp-call', tool, args: args || {} };
+  const opts = MCP_TOP_FRAME_TOOLS.has(tool) ? { frameId: 0 } : undefined;
+  // Without a frameId every frame receives it; only the frame holding the
+  // time-registration grid answers, the others stay silent.
+  let res;
+  try {
+    res = await chrome.tabs.sendMessage(tab.id, msg, opts);
+  } catch (e) {
+    // A tab opened before the extension was (re)loaded has no live content
+    // script — Chrome reports "Receiving end does not exist".
+    if (/receiving end does not exist|could not establish connection/i.test((e && e.message) || '')) {
+      throw new Error('PRAgresso is not active in the Agresso tab — reload the tab (the extension was reloaded after it opened).');
+    }
+    throw e;
+  }
+  if (!res) throw new Error('The open Agresso tab is not showing the time registration page (Daglig tidregistrering).');
+  if (!res.ok) throw new Error(res.error || 'Failed in the Agresso tab.');
+  return res.result;
+}
+
+function mcpConnect() {
+  if (mcpPort) return;
+  let port;
+  try { port = chrome.runtime.connectNative(MCP_HOST); } catch (e) {
+    writeMcpState({ connected: false, error: e.message });
+    return;
+  }
+  mcpPort = port;
+  port.onMessage.addListener((msg) => {
+    if (!msg || typeof msg !== 'object') return;
+    if (msg.type === 'hello') { writeMcpState({ connected: true, error: '', hostVersion: msg.version || '' }); return; }
+    if (msg.type !== 'call') return;
+    const started = Date.now();
+    mcpExecute(String(msg.tool || ''), msg.args)
+      .then((result) => { try { port.postMessage({ type: 'result', id: msg.id, ok: true, result }); } catch (e) { /* closed */ } })
+      .catch((e) => { try { port.postMessage({ type: 'result', id: msg.id, ok: false, error: e && e.message }); } catch (err) { /* closed */ } })
+      .finally(() => {
+        writeMcpState({ lastCall: { tool: msg.tool, ms: Date.now() - started, at: new Date().toISOString() } });
+        console.info(LOG_PREFIX, 'mcp call', msg.tool, `${Date.now() - started} ms`);
+      });
+  });
+  port.onDisconnect.addListener(() => {
+    const err = chrome.runtime.lastError && chrome.runtime.lastError.message;
+    mcpPort = null;
+    writeMcpState({ connected: false, error: err || 'disconnected' });
+  });
+}
+
+function mcpDisconnect() {
+  if (mcpPort) { try { mcpPort.disconnect(); } catch (e) { /* ignore */ } }
+  mcpPort = null;
+  writeMcpState({ connected: false, error: '' });
+}
+
+async function mcpSync() {
+  let on = false;
+  try { on = !!(await chrome.storage.local.get({ mcp_enabled: false })).mcp_enabled; } catch (e) { /* ignore */ }
+  if (on) mcpConnect(); else mcpDisconnect();
+}
+
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area === 'local' && 'mcp_enabled' in changes) mcpSync();
+});
+chrome.runtime.onStartup.addListener(mcpSync);
+chrome.runtime.onInstalled.addListener(mcpSync);
+// The keep-alive alarm ticks every minute; reuse it to reconnect a host that
+// was not installed yet or crashed.
+chrome.alarms.onAlarm.addListener((alarm) => { if (alarm.name === KEEPALIVE_ALARM && !mcpPort) mcpSync(); });
+chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+  if (msg && msg.type === 'mcp-reconnect') { mcpDisconnect(); mcpSync().then(() => sendResponse({ ok: true })); return true; }
+});
+mcpSync();

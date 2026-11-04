@@ -21,6 +21,10 @@ const DEFAULTS = {
   show_semester_summary: true,
   arbetstimmar_collapsed_default: false,
   mark_full_days: true,
+  mark_adjusted_rows: false,
+  delproj_library_enabled: false,
+  wide_layout: 'off',
+  mcp_enabled: false,
   sticky_edit_values: true,
   flag_unknown_lookup_values: true,
   theme: 'auto',
@@ -28,8 +32,8 @@ const DEFAULTS = {
 };
 
 const NUMBER_KEYS = ['IDLE_TIMEOUT_MS', 'SAVE_COOLDOWN_MS', 'DIALOG_SWEEP_MS', 'session_keepalive_minutes'];
-const BOOL_KEYS = ['reminder_enabled', 'auto_stay_signed_in', 'auto_return_to_app', 'session_keepalive_enabled', 'hide_ace_code', 'hide_work_type', 'show_project_label', 'show_delproj_summary', 'show_semester_summary', 'arbetstimmar_collapsed_default', 'mark_full_days', 'sticky_edit_values', 'flag_unknown_lookup_values', 'debug_logging'];
-const STRING_KEYS = ['reminder_lang', 'period_override', 'theme'];
+const BOOL_KEYS = ['reminder_enabled', 'auto_stay_signed_in', 'auto_return_to_app', 'session_keepalive_enabled', 'hide_ace_code', 'hide_work_type', 'show_project_label', 'show_delproj_summary', 'show_semester_summary', 'arbetstimmar_collapsed_default', 'mark_full_days', 'mark_adjusted_rows', 'delproj_library_enabled', 'mcp_enabled', 'sticky_edit_values', 'flag_unknown_lookup_values', 'debug_logging'];
+const STRING_KEYS = ['reminder_lang', 'period_override', 'theme', 'wide_layout'];
 
 function applyTheme(value) {
   const root = document.documentElement;
@@ -164,6 +168,111 @@ async function testKeepAlive() {
   }
 }
 
+// --- Delproj library ------------------------------------------------------
+// Entries live under `delproj_library`, outside DEFAULTS, so Save / Reset /
+// Import never touch them. The content script appends auto-collected codes;
+// this page adds manual ones and removes either kind.
+const LIBRARY_KEY = 'delproj_library';
+
+async function readLibrary() {
+  try {
+    const got = await chrome.storage.local.get(LIBRARY_KEY);
+    return Array.isArray(got[LIBRARY_KEY]) ? got[LIBRARY_KEY] : [];
+  } catch (err) { return []; }
+}
+
+async function renderLibrary() {
+  const body = $('lib_body');
+  const lib = (await readLibrary()).slice().sort((a, b) =>
+    (b.source === 'manual') - (a.source === 'manual') ||
+    String(b.lastUsed || '').localeCompare(String(a.lastUsed || '')) ||
+    String(a.code).localeCompare(String(b.code)));
+  body.textContent = '';
+  if (!lib.length) {
+    const tr = body.insertRow();
+    const td = tr.insertCell();
+    td.colSpan = 5;
+    td.className = 'empty';
+    td.textContent = 'Empty — codes appear here as you report on them, or add one below.';
+    return;
+  }
+  for (const e of lib) {
+    const tr = body.insertRow();
+    tr.insertCell().textContent = e.code;
+    tr.insertCell().textContent = e.name || '';
+    tr.insertCell().textContent = e.source === 'manual' ? 'manual' : `auto (${Number(e.count) || 1} v)`;
+    tr.insertCell().textContent = e.lastUsed || '—';
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'secondary';
+    btn.textContent = 'Remove';
+    btn.addEventListener('click', () => removeLibraryEntry(e.code));
+    tr.insertCell().appendChild(btn);
+  }
+}
+
+async function addLibraryEntry() {
+  const code = $('lib_code').value.trim();
+  const name = $('lib_name').value.trim();
+  if (!code) { flash('Enter a Delproj code', 'error'); return; }
+  const lib = await readLibrary();
+  const hit = lib.find((e) => e.code === code);
+  if (hit) {
+    hit.source = 'manual';
+    if (name) hit.name = name;
+  } else {
+    lib.push({ code, name, source: 'manual', count: 0, lastUsed: '' });
+  }
+  await chrome.storage.local.set({ [LIBRARY_KEY]: lib });
+  $('lib_code').value = '';
+  $('lib_name').value = '';
+  flash(hit ? `${code} updated ✓` : `${code} added ✓`);
+}
+
+async function removeLibraryEntry(code) {
+  const lib = (await readLibrary()).filter((e) => e.code !== code);
+  await chrome.storage.local.set({ [LIBRARY_KEY]: lib });
+  flash(`${code} removed`);
+}
+
+async function clearAutoLibrary() {
+  const lib = (await readLibrary()).filter((e) => e.source === 'manual');
+  await chrome.storage.local.set({ [LIBRARY_KEY]: lib });
+  flash('Auto-collected codes forgotten');
+}
+
+// --- MCP bridge status -----------------------------------------------------
+const MCP_STATE_KEY = 'mcp_state';
+
+async function renderMcp() {
+  const id = chrome.runtime.id;
+  $('mcp_ext_id').textContent = id;
+  // Run from the folder the extension was loaded from (chrome://extensions →
+  // PRAgresso → "Inspect views" shows it; it is the folder with manifest.json).
+  // Reported live: run from ~ instead, node could not find the script and
+  // `claude mcp add` registered a path that does not exist.
+  $('mcp_setup').value =
+    `cd "<the PRAgresso folder, the one with manifest.json>"\n` +
+    `node mcp/pragresso-mcp.js install --extension-id ${id}\n` +
+    `claude mcp add -s user pragresso -- "$(command -v node)" "$PWD/mcp/pragresso-mcp.js"`;
+  let st = null;
+  try { st = (await chrome.storage.local.get(MCP_STATE_KEY))[MCP_STATE_KEY]; } catch (err) { /* ignore */ }
+  const el = $('mcp_status');
+  if (!$('mcp_enabled').checked) { el.textContent = 'off'; el.style.color = 'var(--muted)'; el.style.fontWeight = ''; return; }
+  if (st && st.connected) {
+    const last = st.lastCall ? ` — last call ${st.lastCall.tool} (${st.lastCall.ms} ms)` : '';
+    el.textContent = `● connected (host ${st.hostVersion || '?'})${last}`;
+    el.style.color = 'var(--ok)';
+    el.style.fontWeight = '600';
+  } else {
+    const why = st && st.error ? st.error : 'not connected';
+    el.style.fontWeight = '600';
+    el.textContent = /not found|not installed|Specified native messaging host/i.test(why)
+      ? 'local bridge not installed — run the first command above' : why;
+    el.style.color = 'var(--danger)';
+  }
+}
+
 async function copyJson() {
   try {
     await navigator.clipboard.writeText($('settings_json').value);
@@ -176,10 +285,23 @@ async function copyJson() {
 document.addEventListener('DOMContentLoaded', () => {
   loadAll();
   renderKeepAlive();
+  renderLibrary();
+  setTimeout(renderMcp, 50);
+  $('mcp_enabled').addEventListener('change', () => setTimeout(renderMcp, 0));
+  $('btn_mcp_reconnect').addEventListener('click', async () => {
+    try { await chrome.runtime.sendMessage({ type: 'mcp-reconnect' }); } catch (err) { /* ignore */ }
+    setTimeout(renderMcp, 800);
+  });
+  $('btn_lib_add').addEventListener('click', addLibraryEntry);
+  $('lib_name').addEventListener('keydown', (ev) => { if (ev.key === 'Enter') addLibraryEntry(); });
+  $('lib_code').addEventListener('keydown', (ev) => { if (ev.key === 'Enter') addLibraryEntry(); });
+  $('btn_lib_clear_auto').addEventListener('click', clearAutoLibrary);
   $('btn_keepalive_test').addEventListener('click', testKeepAlive);
   try {
     chrome.storage.onChanged.addListener((changes, area) => {
       if (area === 'local' && KEEPALIVE_STATE_KEY in changes) renderKeepAlive();
+      if (area === 'local' && LIBRARY_KEY in changes) renderLibrary();
+      if (area === 'local' && (MCP_STATE_KEY in changes || 'mcp_enabled' in changes)) renderMcp();
     });
   } catch (err) { /* ignore */ }
   $('btn_save').addEventListener('click', save);

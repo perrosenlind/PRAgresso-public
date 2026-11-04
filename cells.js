@@ -10,6 +10,10 @@
       console.info('[PRAgresso]', 'cells.js already active in this document — skipping duplicate injection');
       return;
     }
+    // The Delproj library's history import loads timesheets in a hidden
+    // iframe. Nothing of ours belongs in there: no autosave, no labels, and
+    // above all no auto-collection stamping old weeks' codes with today.
+    if (window.frameElement && window.frameElement.id === 'pragresso-import-frame') return;
     window.__PRAGRESSO_LOADED__ = true;
   } catch (e) { /* ignore */ }
 
@@ -34,6 +38,18 @@
     // Paint a day's cell in the Tidtransaktion ∑ row green once that day's
     // Återstående timmar reaches 0. See applyDayDoneMarkers.
     mark_full_days: true,
+    // Opt-in: outline rows whose Fakt. värde differs from their Sum.
+    // See applyAdjustedRowMarkers.
+    mark_adjusted_rows: false,
+    // Opt-in: remember Delproj codes and offer them on the Delproj editor.
+    // The entries themselves live under `delproj_library`. See
+    // collectDelprojLibrary.
+    delproj_library_enabled: false,
+    // Opt-in widescreen layout: 'off' | 'right' | 'rail'. See applyWideLayout.
+    wide_layout: 'off',
+    // Opt-in: let a local AI agent read / fill / save the time report over
+    // MCP. See the MCP bridge in background.js and mcpHandle.
+    mcp_enabled: false,
     // Hold user-typed Beskrivningstext and day hours across the postbacks
     // that a Delproj / Aktivitet change triggers. See applyStickyEditValues.
     sticky_edit_values: true,
@@ -209,6 +225,10 @@
       try {
         const frames = doc.querySelectorAll('iframe, frame');
         frames.forEach((f) => {
+          // The library import's hidden timesheet copy must never be seen
+          // by autosave, the dialog sweep or anything else that acts on
+          // every document — it would be one more grid with a Spara button.
+          if (f.id === 'pragresso-import-frame') return;
           try {
             enqueue(f.contentDocument);
           } catch (e) {
@@ -907,7 +927,7 @@
   const DELPROJ_PANEL_ID = 'pragresso-delproj-summary';
   const DELPROJ_COLLAPSED_KEY = 'pragresso_delproj_collapsed';
   let delprojSummaryRafScheduled = false;
-  let delprojSummaryCollapsed = false;
+  let delprojSummaryCollapsed = (() => { try { return localStorage.getItem('pragresso_delproj_collapsed') === '1'; } catch (e) { return false; } })();
 
   function extractDelprojCode(td) {
     if (!td) return '';
@@ -1011,8 +1031,20 @@
       // page and the panel may end up at the wrong place (e.g., above
       // Tidrapport för) if a previous render anchored on a different
       // ancestor. Idempotent — does nothing when already correctly placed.
-      if (anchor && anchor.parentNode && panel.nextSibling !== anchor) {
-        try { anchor.parentNode.insertBefore(panel, anchor); } catch (e) {}
+      //
+      // The library panel sits between this panel and Arbetstimmar. Treat
+      // that as correctly placed: re-seating past it made the two panels
+      // swap places on every pass — the library re-seats itself after this
+      // one — which showed as a flicker on every collapse / expand.
+      const aside = wideMode() === 'right' ? document.getElementById('pragresso-wide-aside') : null;
+      if (aside) {
+        if (panel.parentElement !== aside) aside.appendChild(panel);
+        return panel;
+      }
+      const lib = document.getElementById('pragresso-library-panel');
+      const target = lib && lib.nextSibling === anchor ? lib : anchor;
+      if (anchor && anchor.parentNode && panel.nextSibling !== target) {
+        try { anchor.parentNode.insertBefore(panel, target); } catch (e) {}
       }
       return panel;
     }
@@ -1044,9 +1076,11 @@
       toggleBtn.addEventListener('click', () => {
         delprojSummaryCollapsed = !delprojSummaryCollapsed;
         applyDelprojCollapsedState(panel);
+        try { applyWideLayout(); } catch (e) { /* ignore */ }
         try {
           if (chrome && chrome.storage && chrome.storage.local) {
             chrome.storage.local.set({ [DELPROJ_COLLAPSED_KEY]: delprojSummaryCollapsed });
+            try { localStorage.setItem(DELPROJ_COLLAPSED_KEY, delprojSummaryCollapsed ? '1' : '0'); } catch (e) { /* ignore */ }
           }
         } catch (e) {}
       });
@@ -1362,6 +1396,7 @@
     if (chrome && chrome.storage && chrome.storage.local && chrome.storage.local.get) {
       chrome.storage.local.get([DELPROJ_COLLAPSED_KEY]).then((res) => {
         delprojSummaryCollapsed = !!(res && res[DELPROJ_COLLAPSED_KEY]);
+        try { localStorage.setItem(DELPROJ_COLLAPSED_KEY, delprojSummaryCollapsed ? '1' : '0'); } catch (e) { /* ignore */ }
         const panel = document.getElementById(DELPROJ_PANEL_ID);
         if (panel) applyDelprojCollapsedState(panel);
       }).catch(() => {});
@@ -1897,6 +1932,13 @@
     window.setTimeout(() => {
       dayDoneQueued = false;
       applyDayDoneMarkers();
+      applyAdjustedRowMarkers();
+      scheduleDelprojLibrary();
+      applyDelprojColumnFit();
+      applyWideLayout();
+      renderLibraryPanel(false);
+      if (settings.delproj_library_enabled === true) applyPendingLibraryNewRow();
+      applyWideLayout();
     }, DAY_DONE_THROTTLE_MS);
   }
 
@@ -1917,6 +1959,2201 @@
         characterData: true
       });
     } catch (e) { /* ignore */ }
+  }
+
+  // ── Adjusted rows ───────────────────────────────────────────────────────
+  // Outline a Tidtransaktion row whose Fakt. värde differs from the hours
+  // actually registered on it (Sum), e.g. 2.00 h reported but 4.00 billed.
+  // Opt-in. Rows with Fakt. värde 0 are non-billable time, not an
+  // adjustment, and are left alone; so are rows registered in days
+  // (absence), whose Sum is not an hour count.
+  //
+  // The row is tinted (see ADJ_CSS), with an accent on the first VISIBLE
+  // cell — hidden columns mean :first-child can be a display:none cell.
+  // Injected after Agresso's sheets for the same cascade reason as the
+  // full-day marker.
+  const ADJ_ROW_MARK = 'data-pragresso-adjusted';
+  const ADJ_EDGE_MARK = 'data-pragresso-adj-edge';
+  const ADJ_STYLE_ID = 'pragresso-adjusted-style';
+  // A soft tint in the theme's accent colour instead of a frame: the 2px
+  // lines read too harsh on the live grid. Painted as a translucent
+  // background-IMAGE so it layers over each cell's own background-color —
+  // the red weekend cells stay red, just shifted. The page-wide dark theme
+  // (invert + hue-rotate) keeps hue and flips lightness, so a tint over
+  // white renders as a muted dark tone of the same hue; the edge accent is
+  // given a pale pre-filter value there so it comes out saturated.
+  //   light / dark / auto → the blue accent of the options page
+  //   advania             → brand pink (#cc0085)
+  const ADJ_CSS = `
+    tr[${ADJ_ROW_MARK}] {
+      --pragresso-adj-tint: rgba(37, 99, 235, 0.16);
+      --pragresso-adj-edge: #2563eb;
+    }
+    html.agresso-dark-page tr[${ADJ_ROW_MARK}] {
+      --pragresso-adj-tint: rgba(37, 99, 235, 0.22);
+      --pragresso-adj-edge: #93c5fd;
+    }
+    html[data-agresso-theme="advania"] tr[${ADJ_ROW_MARK}] {
+      --pragresso-adj-tint: rgba(204, 0, 133, 0.2);
+      --pragresso-adj-edge: #f9a8d4;
+    }
+    tr[${ADJ_ROW_MARK}] > td {
+      background-image: linear-gradient(var(--pragresso-adj-tint), var(--pragresso-adj-tint)) !important;
+    }
+    tr[${ADJ_ROW_MARK}] > td[${ADJ_EDGE_MARK}="l"] {
+      box-shadow: inset 3px 0 0 0 var(--pragresso-adj-edge) !important;
+    }
+    tr[${ADJ_ROW_MARK}] > td[${ADJ_EDGE_MARK}="f"] {
+      font-weight: 700 !important;
+    }`;
+
+  function ensureAdjustedStyle() {
+    if (document.getElementById(ADJ_STYLE_ID)) return;
+    const style = document.createElement('style');
+    style.id = ADJ_STYLE_ID;
+    style.textContent = ADJ_CSS;
+    (document.head || document.documentElement).appendChild(style);
+  }
+
+  function clearAdjustedRow(row) {
+    if (!row.hasAttribute(ADJ_ROW_MARK)) return;
+    row.removeAttribute(ADJ_ROW_MARK);
+    row.removeAttribute('title');
+    row.querySelectorAll(`:scope > td[${ADJ_EDGE_MARK}]`).forEach((td) => td.removeAttribute(ADJ_EDGE_MARK));
+  }
+
+  function setAttrIfChanged(el, name, value) {
+    if (el.getAttribute(name) !== value) el.setAttribute(name, value);
+  }
+
+  function applyAdjustedRowMarkers() {
+    try {
+      const off = settings.mark_adjusted_rows !== true;
+      if (off) {
+        document.querySelectorAll(`tr[${ADJ_ROW_MARK}]`).forEach(clearAdjustedRow);
+        return;
+      }
+      const anchor = document.querySelector('th[data-fieldname^="reg_value"]');
+      const table = anchor && anchor.closest('table');
+      if (!table) return;
+      const headerRow = table.querySelector('tr');
+      const headers = headerRow ? headerRow.querySelectorAll('th') : [];
+      const dayIdxs = [];
+      let faktIdx = -1;
+      let unitIdx = -1;
+      for (let i = 0; i < headers.length; ++i) {
+        const th = headers[i];
+        const df = th.getAttribute('data-fieldname') || '';
+        if (faktIdx < 0 && (FAKT_HEADER_RE.test((th.textContent || '').trim()) ||
+            FAKT_HEADER_RE.test((th.getAttribute('title') || '').trim()))) { faktIdx = i; continue; }
+        if (unitIdx < 0 && df === REG_UNIT_FIELD) { unitIdx = i; continue; }
+        if (DAY_FIELD_RE.test(df)) dayIdxs.push(i);
+      }
+      if (faktIdx < 0 || !dayIdxs.length) return;
+      ensureAdjustedStyle();
+
+      for (const row of table.rows) {
+        if (row === headerRow || row.parentElement.closest('table') !== table) continue;
+        if (row.classList.contains('SumItem')) continue;
+        let sum = NaN;
+        let fakt = NaN;
+        let unit = '';
+        if (row.classList.contains('EditRow')) {
+          sum = readEditRowDaySum(row);
+          fakt = readEditRowFakt(row);
+          unit = readEditRowUnit(row);
+        } else {
+          if (row.children.length !== headers.length) { clearAdjustedRow(row); continue; }
+          let any = false;
+          sum = 0;
+          for (const idx of dayIdxs) {
+            const n = readCellNumber(row.children[idx]);
+            if (Number.isFinite(n)) { sum += n; any = true; }
+          }
+          if (!any) sum = NaN;
+          fakt = readCellNumber(row.children[faktIdx]);
+          if (unitIdx >= 0) unit = (row.children[unitIdx].textContent || '').trim();
+        }
+        const s = roundHours(sum);
+        const f = roundHours(fakt);
+        const adjusted = Number.isFinite(s) && Number.isFinite(f) && f !== 0 &&
+          s !== f && !DAY_UNIT_RE.test(unit);
+        if (!adjusted) { clearAdjustedRow(row); continue; }
+
+        const diff = roundHours(f - s);
+        setAttrIfChanged(row, ADJ_ROW_MARK, diff > 0 ? 'up' : 'down');
+        setAttrIfChanged(row, 'title',
+          `Justerad: rapporterat ${s.toFixed(2)} h, fakturerat ${f.toFixed(2)} h (${diff > 0 ? '+' : ''}${diff.toFixed(2)})`);
+        const visible = Array.from(row.children).filter((td) =>
+          td.tagName === 'TD' && td.offsetParent !== null);
+        const first = visible[0];
+        const faktTd = row.classList.contains('EditRow') ? null : row.children[faktIdx];
+        for (const td of row.children) {
+          const want = td === first ? 'l' : td === faktTd ? 'f' : null;
+          if (want) setAttrIfChanged(td, ADJ_EDGE_MARK, want);
+          else if (td.hasAttribute(ADJ_EDGE_MARK)) td.removeAttribute(ADJ_EDGE_MARK);
+        }
+      }
+    } catch (e) { /* ignore */ }
+  }
+
+  // ── Delproj library ─────────────────────────────────────────────────────
+  // Opt-in. Remembers every Delproj code that shows up on a saved
+  // Tidtransaktion row (source 'auto'), plus codes the user adds by hand on
+  // the options page (source 'manual'). While enabled, the row's Delproj
+  // editor gets a native <datalist> of the library, so picking an entry is
+  // indistinguishable from typing it — Agresso's own lookup still resolves
+  // and validates the value. Nothing is ever posted on the user's behalf.
+  //
+  // Stored under `delproj_library` in chrome.storage.local as
+  //   [{ code, name, source: 'auto'|'manual', count, lastUsed: 'YYYY-MM-DD' }]
+  // `count` is the number of distinct days the code was seen on.
+  const LIBRARY_KEY = 'delproj_library';
+  const LIBRARY_DATALIST_ID = 'pragresso-delproj-library';
+  const LIBRARY_THROTTLE_MS = 2000;
+  // A per-tab copy of the library, read synchronously at startup: every
+  // postback replaces this document, and waiting for chrome.storage left
+  // the widescreen column empty for a beat before the panel popped in.
+  const LIBRARY_SESSION_KEY = 'pragresso_library_cache_v1';
+  let libraryCache = (() => {
+    try {
+      const v = JSON.parse(sessionStorage.getItem(LIBRARY_SESSION_KEY) || 'null');
+      return Array.isArray(v) ? v : null;
+    } catch (e) { return null; }
+  })();
+  let libraryLoading = null;
+  function mirrorLibraryCache() {
+    try { sessionStorage.setItem(LIBRARY_SESSION_KEY, JSON.stringify(libraryCache || [])); } catch (e) { /* ignore */ }
+  }
+  let libraryLastSig = '';
+
+  function loadLibrary() {
+    if (!libraryLoading) {
+      // Always refresh from the real store once per document; a session
+      // copy is only a head start for the first paint.
+      libraryLoading = chrome.storage.local.get(LIBRARY_KEY).then((got) => {
+        libraryCache = Array.isArray(got && got[LIBRARY_KEY]) ? got[LIBRARY_KEY] : [];
+        mirrorLibraryCache();
+        try { renderLibraryPanel(false); } catch (e) { /* ignore */ }
+        return libraryCache;
+      }).catch(() => (libraryCache = libraryCache || []));
+    }
+    return libraryCache ? Promise.resolve(libraryCache) : libraryLoading;
+  }
+
+  try {
+    chrome.storage.onChanged.addListener((changes, area) => {
+      if (area !== 'local' || !(LIBRARY_KEY in changes)) return;
+      const v = changes[LIBRARY_KEY].newValue;
+      libraryCache = Array.isArray(v) ? v : [];
+      mirrorLibraryCache();
+      libraryLastSig = '';
+      try { applyDelprojLibraryDatalist(); } catch (e) {}
+      try { renderLibraryPanel(false); } catch (e) {}
+    try { if (settings.delproj_library_enabled === true) applyPendingLibraryNewRow(); } catch (e) {}
+    try { applyWideLayout(); } catch (e) {}
+    });
+  } catch (e) { /* ignore */ }
+
+  function todayIso() {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  }
+
+  function shownPeriodIso(doc) {
+    const el = (doc || document).querySelector('input[name$="$date_in_period$i"]');
+    const v = el ? el.value.trim() : '';
+    let m = /^(\d{2})\D(\d{2})\D(\d{4})$/.exec(v);
+    if (m) return `${m[3]}-${m[2]}-${m[1]}`;
+    m = /^(\d{4})\D(\d{2})\D(\d{2})$/.exec(v);
+    if (m) return `${m[1]}-${m[2]}-${m[3]}`;
+    return '';
+  }
+
+  // Saved rows only: a static Delproj cell carries `title="<name> - <code>"`.
+  // The edit row is skipped on purpose — its editor holds half-typed text.
+  function scanSavedDelprojCodes() {
+    const out = new Map();
+    document.querySelectorAll('tr:not(.EditRow):not(.SumItem) > td[title]').forEach((td) => {
+      const field = getCellFieldName(td);
+      if (field !== 'work_order' && field !== 'project') return;
+      // The code from the cell's title ("<name> - 234567-11") first: the
+      // visible text came back as "234567" once, which landed in the
+      // library as a code that does not exist.
+      const title = td.getAttribute('title') || '';
+      const tm = title.match(/\s-\s([A-Z0-9][A-Z0-9\-\/]*)\s*$/i);
+      const code = tm ? tm[1] : extractDelprojCode(td);
+      if (!code || !/^[A-Z0-9][A-Z0-9\-\/]*$/i.test(code)) return;
+      if (!out.has(code)) out.set(code, extractProjectDescription(title) || '');
+    });
+    return out;
+  }
+
+  async function collectDelprojLibrary() {
+    if (settings.delproj_library_enabled !== true) return;
+    const seen = scanSavedDelprojCodes();
+    if (!seen.size) return;
+    // Stamp the period being SHOWN, not today: browsing back to an old week
+    // must not make its codes look used this week. `Datum i perioden`
+    // (dd/mm/yyyy here, yyyy-mm-dd handled) is the shown period's date.
+    const shownIso = shownPeriodIso() || todayIso();
+    const shownPeriod = readImportPeriod(document);
+    const sig = Array.from(seen.keys()).sort().join('|') + '@' + shownIso;
+    if (sig === libraryLastSig) return;
+    libraryLastSig = sig;
+    // Re-read before merging so two frames (or the options page) writing
+    // at once cannot drop each other's entries.
+    let lib;
+    try {
+      const got = await chrome.storage.local.get(LIBRARY_KEY);
+      lib = Array.isArray(got && got[LIBRARY_KEY]) ? got[LIBRARY_KEY].slice() : [];
+    } catch (e) { return; }
+    let dirty = false;
+    for (const [code, name] of seen) {
+      const hit = lib.find((e) => e && e.code === code);
+      if (!hit) {
+        lib.push({ code, name, source: 'auto', count: 1, lastUsed: shownIso, weeks: [shownIso], lastPeriod: shownPeriod || undefined });
+        dirty = true;
+        continue;
+      }
+      const weeks = Array.isArray(hit.weeks) ? hit.weeks : [];
+      if (weeks.indexOf(shownIso) === -1) {
+        weeks.push(shownIso);
+        weeks.sort();
+        if (weeks.length > 120) weeks.splice(0, weeks.length - 120);
+        hit.weeks = weeks;
+        hit.count = (Number(hit.count) || 0) + 1;
+        dirty = true;
+      }
+      if (!hit.lastUsed || shownIso > hit.lastUsed) {
+        hit.lastUsed = shownIso;
+        dirty = true;
+      }
+      if (shownPeriod && (!hit.lastPeriod || shownPeriod > hit.lastPeriod)) {
+        hit.lastPeriod = shownPeriod;
+        dirty = true;
+      }
+      if (!hit.name && name) { hit.name = name; dirty = true; }
+    }
+    if (!dirty) return;
+    libraryCache = lib;
+    mirrorLibraryCache();
+    try { await chrome.storage.local.set({ [LIBRARY_KEY]: lib }); } catch (e) { /* ignore */ }
+  }
+
+  function applyDelprojLibraryDatalist() {
+    // Retired: seen live, the native datalist opened ON TOP of Agresso's own
+    // typeahead on the Delproj editor, two lists over each other. The
+    // library panel (click a code, ＋ Ny rad) replaces it; this now only
+    // removes a list left by an older build.
+    const off = true;
+    const existing = document.getElementById(LIBRARY_DATALIST_ID);
+    if (off) {
+      if (existing) existing.remove();
+      document.querySelectorAll(`input[list="${LIBRARY_DATALIST_ID}"]`).forEach((i) => i.removeAttribute('list'));
+      return;
+    }
+    if (!document.querySelector('tr.EditRow')) return;
+    if (!libraryCache) { loadLibrary().then(applyDelprojLibraryDatalist); return; }
+    let list = existing;
+    if (!list) {
+      list = document.createElement('datalist');
+      list.id = LIBRARY_DATALIST_ID;
+      (document.body || document.documentElement).appendChild(list);
+    }
+    const sorted = libraryCache.filter((e) => e && e.code).slice().sort((a, b) =>
+      (b.source === 'manual') - (a.source === 'manual') ||
+      String(b.lastUsed || '').localeCompare(String(a.lastUsed || '')) ||
+      a.code.localeCompare(b.code));
+    const sig = sorted.map((e) => e.code + '\u0001' + (e.name || '')).join('\u0002');
+    if (list.dataset.sig !== sig) {
+      list.textContent = '';
+      for (const e of sorted) {
+        const opt = document.createElement('option');
+        opt.value = e.code;
+        opt.label = e.name || '';
+        list.appendChild(opt);
+      }
+      list.dataset.sig = sig;
+    }
+    document.querySelectorAll('tr.EditRow').forEach((row) => {
+      const ed = findEditRowDelprojEditor(row);
+      if (ed && ed.getAttribute('list') !== LIBRARY_DATALIST_ID) ed.setAttribute('list', LIBRARY_DATALIST_ID);
+    });
+  }
+
+  let libraryQueued = false;
+  function scheduleDelprojLibrary() {
+    if (libraryQueued) return;
+    libraryQueued = true;
+    window.setTimeout(() => {
+      libraryQueued = false;
+      try { applyDelprojLibraryDatalist(); } catch (e) {}
+      try { collectDelprojLibrary(); } catch (e) {}
+    }, LIBRARY_THROTTLE_MS);
+  }
+
+  // ── Delproj column fit ──────────────────────────────────────────────────
+  // The Delproj column ships at a fixed 74 px under `table-layout: fixed`,
+  // and the code's <div class="DivOverflowNoWrap ww"> wraps at the hyphen,
+  // so `234567-11` rendered as `234567-` / `11`. Verified live: with the
+  // wrap disabled the longest code needed 66 px of text + 8 px of padding
+  // and border, i.e. 76 px. So: never wrap the code, and widen the header
+  // to the widest code (never narrower than Agresso's own width). The
+  // header's data-minwidth / data-tempwidth are Agresso's resize memory and
+  // are raised with it, the same way applyFieldSizing does Beskrivningstext.
+  const DELPROJ_FIT_STYLE_ID = 'pragresso-delproj-fit-style';
+  // Both quote styles: transferred weeks render TG.GS.ER(this, "work_order").
+  const DELPROJ_CODE_DIV_SEL = 'td:is([onclick*="\'work_order\'"], [onclick*=\'"work_order"\']) > div.DivOverflowNoWrap';
+
+  function applyDelprojColumnFit() {
+    try {
+      const th = document.querySelector('th[data-fieldname="work_order"]');
+      if (!th) return;
+      if (!document.getElementById(DELPROJ_FIT_STYLE_ID)) {
+        const style = document.createElement('style');
+        style.id = DELPROJ_FIT_STYLE_ID;
+        style.textContent = `${DELPROJ_CODE_DIV_SEL} { white-space: nowrap !important; word-break: keep-all !important; overflow-wrap: normal !important; }`;
+        (document.head || document.documentElement).appendChild(style);
+      }
+      const divs = document.querySelectorAll(DELPROJ_CODE_DIV_SEL);
+      if (!divs.length) return;
+      // Measure the TEXT, not the div: under nowrap the div is as wide as
+      // the column, so scrollWidth fed our own widening back in and the
+      // column ratcheted +10 px per pass (seen live at 268 px), re-laying
+      // the grid every 150 ms — the flicker on toggling our panels.
+      let widest = 0;
+      const range = document.createRange();
+      divs.forEach((d) => {
+        range.selectNodeContents(d);
+        const w = range.getBoundingClientRect().width;
+        if (w > widest) widest = w;
+      });
+      const td = divs[0].parentElement;
+      const cs = getComputedStyle(td);
+      const padX = (parseFloat(cs.paddingLeft) || 0) + (parseFloat(cs.paddingRight) || 0) +
+        (parseFloat(cs.borderLeftWidth) || 0) + (parseFloat(cs.borderRightWidth) || 0);
+      const need = Math.ceil(widest + padX + 2);
+      const native = parseInt(th.getAttribute('data-pragresso-native-w') || '', 10) ||
+        Math.round(th.getBoundingClientRect().width);
+      if (!th.hasAttribute('data-pragresso-native-w')) th.setAttribute('data-pragresso-native-w', String(native));
+      const want = Math.max(native, need);
+      if (th.style.getPropertyValue('width') === `${want}px`) return;
+      th.style.setProperty('width', `${want}px`, 'important');
+      th.setAttribute('data-minwidth', String(want));
+      th.setAttribute('data-tempwidth', String(want));
+    } catch (e) { /* ignore */ }
+  }
+
+  // ── Delproj library panel + history import ──────────────────────────────
+  // A collapsible panel under the Delproj summary on the time-registration
+  // page: search the library, click a code to type it into the row being
+  // edited, remove entries, add the search text as a manual entry, and
+  // import the codes from the last N weeks / months.
+  //
+  // Import, verified live against CR 26.1: Unit4 has no readable REST API
+  // here (every /api/... probe but session/current is a 404), so history is
+  // read the way a person would — the timesheet is loaded in a hidden
+  // same-origin iframe (ContentContainer.aspx with this frame's own `type`
+  // and `menu_id`), the `date_in_period$i` field is set to a date in the
+  // wanted week, its `$IsDirty` sibling flagged, and the field's own
+  // `PostBack('…')` call fired. Setting the value and dispatching `change`
+  // is not enough: the inline handler is gated on FilterWasTriggered, which
+  // only a real keystroke sets, so it returned false and nothing posted.
+  // Setting the period field (202644) instead is ignored by the server.
+  // The PostBack call is run through a temporary inline onclick, because
+  // only an inline handler reaches the page's own JS world from a content
+  // script. Nothing is saved: the hidden copy never presses Spara, and
+  // the visible timesheet was checked to stay on its own period.
+  const LIB_PANEL_ID = 'pragresso-library-panel';
+  const LIB_COLLAPSED_KEY = 'pragresso_library_collapsed';
+  const LIB_IMPORT_PREF_KEY = 'pragresso_library_import_pref';
+  const IMPORT_FRAME_ID = 'pragresso-import-frame';
+  const IMPORT_MAX_WEEKS = 104;
+  // Read synchronously (localStorage) so a collapsed panel is born
+  // collapsed after a postback instead of opening and then folding.
+  let libPanelCollapsed = (() => { try { return localStorage.getItem(LIB_COLLAPSED_KEY) === '1'; } catch (e) { return false; } })();
+  let libImportRunning = false;
+  // Rail (layout B) filter: 'recent' | 'own' | 'most'.
+  let libFilterMode = 'recent';
+  let libImportCancel = false;
+  try {
+    chrome.storage.local.get(LIB_COLLAPSED_KEY).then((r) => {
+      libPanelCollapsed = !!(r && r[LIB_COLLAPSED_KEY]);
+      try { localStorage.setItem(LIB_COLLAPSED_KEY, libPanelCollapsed ? '1' : '0'); } catch (e) { /* ignore */ }
+      const p = document.getElementById(LIB_PANEL_ID);
+      if (p) p.classList.toggle('collapsed', libPanelCollapsed);
+    }).catch(() => {});
+  } catch (e) { /* ignore */ }
+
+  function libStatus(panel, text) {
+    const el = panel && panel.querySelector('.pragresso-lib-status');
+    if (el) el.textContent = text || '';
+  }
+
+  async function writeLibrary(mutate) {
+    let lib;
+    try {
+      const got = await chrome.storage.local.get(LIBRARY_KEY);
+      lib = Array.isArray(got && got[LIBRARY_KEY]) ? got[LIBRARY_KEY].slice() : [];
+    } catch (e) { return; }
+    mutate(lib);
+    libraryCache = lib;
+    mirrorLibraryCache();
+    try { await chrome.storage.local.set({ [LIBRARY_KEY]: lib }); } catch (e) { /* ignore */ }
+  }
+
+  // Type the code into the edit row's Delproj editor as if keyed in:
+  // execCommand('insertText') fires real input / keyup handling, so
+  // Agresso's typeahead opens and its change handler runs on Tab.
+  function insertLibraryCode(panel, code, targetRow) {
+    const row = targetRow || document.querySelector('tr.EditRow');
+    const ed = row && findEditRowDelprojEditor(row);
+    if (!ed || ed.disabled || ed.readOnly) {
+      try { navigator.clipboard.writeText(code); } catch (e) { /* ignore */ }
+      libStatus(panel, `Ingen rad i redigeringsläge — ${code} kopierad till urklipp.`);
+      return;
+    }
+    ed.focus();
+    ed.select();
+    let ok = false;
+    try { ok = document.execCommand('insertText', false, code); } catch (e) { ok = false; }
+    if (!ok || ed.value !== code) {
+      ed.value = code;
+      ed.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+    libStatus(panel, `${code} ifylld — tryck Tab för att bekräfta.`);
+  }
+
+  function ensureLibraryPanel() {
+    let panel = document.getElementById(LIB_PANEL_ID);
+    const after = document.getElementById(DELPROJ_PANEL_ID);
+    const anchor = findArbetstimmarAnchor();
+    const place = (p) => {
+      const aside = wideAside();
+      if (aside) {
+        if (p.parentElement !== aside) aside.insertBefore(p, aside.firstChild);
+        return;
+      }
+      if (after && after.parentNode) {
+        if (after.nextSibling !== p) after.parentNode.insertBefore(p, after.nextSibling);
+      } else if (anchor && anchor.parentNode) {
+        if (p.nextSibling !== anchor) anchor.parentNode.insertBefore(p, anchor);
+      } else if (!p.parentNode) {
+        (document.body || document.documentElement).appendChild(p);
+      }
+    };
+    if (panel) { place(panel); return panel; }
+    panel = document.createElement('section');
+    panel.id = LIB_PANEL_ID;
+    panel.innerHTML =
+      '<header class="pragresso-delproj-header">' +
+        '<button type="button" class="pragresso-delproj-toggle" title="Visa/dölj"></button>' +
+        '<span class="pragresso-delproj-title">Delproj bibliotek</span>' +
+        '<span class="pragresso-delproj-total" data-count></span>' +
+      '</header>' +
+      '<div class="pragresso-delproj-body">' +
+        '<label class="pragresso-lib-label">Sök</label>' +
+        '<div class="pragresso-lib-tools">' +
+          '<input type="search" data-filter placeholder="Kod eller namn…" aria-label="Sök i biblioteket" />' +
+          '<button type="button" data-add title="Lägg till söktexten som egen kod (kod, ev. följt av namn)">Lägg till</button>' +
+        '</div>' +
+        '<div class="pragresso-lib-status" role="status"></div>' +
+        '<div class="pragresso-lib-filters" role="group" aria-label="Visa">' +
+          '<button type="button" data-filter-mode="recent" aria-pressed="true">Senaste</button>' +
+          '<button type="button" data-filter-mode="own" aria-pressed="false">Egna</button>' +
+          '<button type="button" data-filter-mode="most" aria-pressed="false">Mest använda</button>' +
+        '</div>' +
+        '<div class="pragresso-lib-scroll">' +
+          '<table class="pragresso-delproj-table">' +
+            '<thead><tr><th>Delproj</th><th class="num small">Senast</th><th class="num small">Ggr</th><th></th></tr></thead>' +
+            '<tbody></tbody>' +
+          '</table>' +
+        '</div>' +
+        // Tucked away like the mockup: importing is occasional, the list is
+        // what you use all day.
+        '<details class="pragresso-lib-import">' +
+          '<summary>Importera historik</summary>' +
+          '<div class="pragresso-lib-import-row">' +
+            '<label>Senaste <input type="number" data-n min="1" max="24" value="4" /></label>' +
+            '<span class="pw-seg" data-unit role="group" aria-label="Enhet">' +
+              '<button type="button" data-unit-val="w" aria-pressed="true">veckor</button>' +
+              '<button type="button" data-unit-val="m" aria-pressed="false">månader</button>' +
+            '</span>' +
+            '<button type="button" data-import class="pragresso-lib-primary">Importera</button>' +
+          '</div>' +
+        '</details>' +
+      '</div>';
+    place(panel);
+    panel.classList.toggle('collapsed', libPanelCollapsed);
+    if (libImportRunning) {
+      const b = panel.querySelector('[data-import]');
+      if (b) b.textContent = 'Stoppa';
+      const d = panel.querySelector('.pragresso-lib-import');
+      if (d) d.open = true;
+    }
+    setTimeout(resumeLibraryImportIfPending, 500);
+
+    panel.querySelector('.pragresso-delproj-toggle').addEventListener('click', () => {
+      libPanelCollapsed = !libPanelCollapsed;
+      panel.classList.toggle('collapsed', libPanelCollapsed);
+      try { applyWideLayout(); } catch (e) { /* ignore */ }
+      try { chrome.storage.local.set({ [LIB_COLLAPSED_KEY]: libPanelCollapsed }); } catch (e) { /* ignore */ }
+      try { localStorage.setItem(LIB_COLLAPSED_KEY, libPanelCollapsed ? '1' : '0'); } catch (e) { /* ignore */ }
+    });
+    panel.querySelectorAll('[data-filter-mode]').forEach((b) => b.addEventListener('click', () => {
+      libFilterMode = b.getAttribute('data-filter-mode');
+      panel.querySelectorAll('[data-filter-mode]').forEach((x) => x.setAttribute('aria-pressed', x === b ? 'true' : 'false'));
+      renderLibraryPanel(true);
+    }));
+    const filter = panel.querySelector('[data-filter]');
+    filter.addEventListener('input', () => renderLibraryPanel(true));
+    panel.querySelector('[data-add]').addEventListener('click', () => {
+      const raw = filter.value.trim();
+      const m = /^(\S+)\s*(.*)$/.exec(raw);
+      if (!m) { libStatus(panel, 'Skriv en kod i sökfältet först (ev. följt av ett namn).'); return; }
+      const [, code, name] = m;
+      writeLibrary((lib) => {
+        const hit = lib.find((e) => e.code === code);
+        if (hit) { hit.source = 'manual'; if (name) hit.name = name; }
+        else lib.push({ code, name, source: 'manual', count: 0, lastUsed: '' });
+      }).then(() => {
+        filter.value = '';
+        libStatus(panel, `${code} tillagd.`);
+        renderLibraryPanel(true);
+      });
+    });
+    const nEl = panel.querySelector('[data-n]');
+    // Buttons, not a <select>: Agresso rewrites selects into its own widget.
+    const unitEl = {
+      get value() { const b = panel.querySelector('[data-unit-val][aria-pressed="true"]'); return b ? b.getAttribute('data-unit-val') : 'w'; },
+      set value(v) { panel.querySelectorAll('[data-unit-val]').forEach((b) => b.setAttribute('aria-pressed', b.getAttribute('data-unit-val') === v ? 'true' : 'false')); }
+    };
+    try {
+      chrome.storage.local.get(LIB_IMPORT_PREF_KEY).then((r) => {
+        const pref = r && r[LIB_IMPORT_PREF_KEY];
+        if (pref && pref.n) nEl.value = String(pref.n);
+        if (pref && (pref.unit === 'w' || pref.unit === 'm')) unitEl.value = pref.unit;
+      }).catch(() => {});
+    } catch (e) { /* ignore */ }
+    const savePref = () => {
+      try { chrome.storage.local.set({ [LIB_IMPORT_PREF_KEY]: { n: parseInt(nEl.value, 10) || 4, unit: unitEl.value } }); } catch (e) { /* ignore */ }
+    };
+    nEl.addEventListener('change', savePref);
+    panel.querySelectorAll('[data-unit-val]').forEach((b) => b.addEventListener('click', () => {
+      unitEl.value = b.getAttribute('data-unit-val');
+      savePref();
+    }));
+    panel.querySelector('[data-import]').addEventListener('click', () => {
+      if (libImportRunning) {
+        libImportCancel = true;
+        writeImportJob(null);
+        libStatus(panel, 'Stoppar efter pågående vecka…');
+        return;
+      }
+      const n = Math.max(1, Math.min(24, parseInt(panel.querySelector('[data-n]').value, 10) || 1));
+      const unit = unitEl.value;
+      const weeks = Math.min(IMPORT_MAX_WEEKS, unit === 'm' ? Math.round(n * 52 / 12) : n);
+      importLibraryHistory(panel, weeks);
+    });
+    panel.querySelector('tbody').addEventListener('click', (ev) => {
+      const nrb = ev.target.closest('[data-newrow]');
+      if (nrb) { startLibraryNewRow(panel, nrb.getAttribute('data-newrow')); return; }
+      const del = ev.target.closest('[data-del]');
+      if (del) {
+        const code = del.getAttribute('data-del');
+        writeLibrary((lib) => {
+          const i = lib.findIndex((e) => e.code === code);
+          if (i >= 0) lib.splice(i, 1);
+        }).then(() => { libStatus(panel, `${code} borttagen.`); renderLibraryPanel(true); });
+        return;
+      }
+      const tr = ev.target.closest('tr[data-code]');
+      if (tr) insertLibraryCode(panel, tr.getAttribute('data-code'));
+    });
+    return panel;
+  }
+
+  // "Ny rad" from the library: press Agresso's own `Lägg till` under
+  // Tidtransaktion, then type the code into the new row once it renders and
+  // bring it into view. `Lägg till` is a postback that replaces this
+  // document, so the code waits in sessionStorage (per tab, shared across
+  // the frame nest) and is applied by whichever pass first sees the new
+  // edit row. The button's id ends in `_buttons__newButton` (verified
+  // live, prefix `b_s89_g89s90` = the Tidtransaktion grid); the grid's own
+  // one is told apart from Arbetstimmar's by sharing that grid prefix.
+  const NEWROW_KEY = 'pragresso_library_newrow_v1';
+  const NEWROW_TTL_MS = 20000;
+
+  function findTidtransaktionNewButton() {
+    const th = document.querySelector('th[data-fieldname="work_order"]');
+    const table = th && th.closest('table');
+    const sample = table && table.querySelector('[id*="__sumRow_"], input[name$="$_delete"]');
+    const gridPrefix = sample ? (sample.id || sample.name.replace(/\$/g, '_')).split(/__sumRow_|_row\d/)[0] : '';
+    const buttons = Array.from(document.querySelectorAll('button[id$="_buttons__newButton"]'));
+    return buttons.find((b) => gridPrefix && b.id.startsWith(gridPrefix)) ||
+      (buttons.length === 1 ? buttons[0] : null);
+  }
+
+  function startLibraryNewRow(panel, code) {
+    const btn = findTidtransaktionNewButton();
+    if (!btn || btn.disabled) {
+      libStatus(panel, 'Hittar inte knappen Lägg till under Tidtransaktion.');
+      return;
+    }
+    try { sessionStorage.setItem(NEWROW_KEY, JSON.stringify({ code, ts: Date.now() })); } catch (e) { /* ignore */ }
+    libStatus(panel, `Skapar ny rad med ${code}…`);
+    btn.click();
+  }
+
+  function applyPendingLibraryNewRow() {
+    let pending = null;
+    try { pending = JSON.parse(sessionStorage.getItem(NEWROW_KEY) || 'null'); } catch (e) { pending = null; }
+    if (!pending) return;
+    if (!pending.code || Date.now() - (pending.ts || 0) > NEWROW_TTL_MS) {
+      try { sessionStorage.removeItem(NEWROW_KEY); } catch (e) { /* ignore */ }
+      return;
+    }
+    // The new row is the edit row whose Delproj editor is still empty.
+    const row = Array.from(document.querySelectorAll('tr.EditRow')).find((r) => {
+      const ed = findEditRowDelprojEditor(r);
+      return ed && !ed.disabled && !(ed.value || '').trim();
+    });
+    if (!row) return;
+    try { sessionStorage.removeItem(NEWROW_KEY); } catch (e) { /* ignore */ }
+    try { row.scrollIntoView({ block: 'center' }); } catch (e) { /* ignore */ }
+    insertLibraryCode(document.getElementById(LIB_PANEL_ID), pending.code, row);
+  }
+
+  // "v.45 · 7 v" — ISO week of the last use and the number of weeks used.
+  function libMetaText(e) {
+    if (e.source === 'manual' && !e.lastUsed) return ''; // the "egen" tag says it
+    const parts = [];
+    // Agresso's own period number is the truth: a week can be split at a
+    // month boundary (202641 started Thursday 01/10), so no date → ISO-week
+    // rule matches it everywhere — validated against the ground truth, the
+    // Sunday rule alone still left 8 of 53 codes a week off.
+    const pm = /^\d{4}(\d{2})$/.exec(e.lastPeriod || '');
+    const m = pm ? null : /^(\d{4})-(\d{2})-(\d{2})$/.exec(e.lastUsed || '');
+    if (pm) parts.push(`v.${parseInt(pm[1], 10)}`);
+    if (m) {
+      const d = new Date(Date.UTC(+m[1], +m[2] - 1, +m[3]));
+      // Agresso's week periods start on SUNDAY (202645 = Sun 01/11 – Sun
+      // 08/11), and the date stored for a week is the period's start, so a
+      // Sunday belongs to the week after it. ISO puts Sunday in the week
+      // before: validated against the period numbers, 12 of 53 codes read
+      // one week early (v.44 for 202645).
+      if (d.getUTCDay() === 0) d.setUTCDate(d.getUTCDate() + 1);
+      const day = d.getUTCDay() || 7;
+      d.setUTCDate(d.getUTCDate() + 4 - day);
+      const y0 = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+      parts.push(`v.${Math.ceil(((d - y0) / 86400000 + 1) / 7)}`);
+    }
+    const n = Number(e.count) || 0;
+    if (n) parts.push(`${n} v`);
+    return parts.join(' · ');
+  }
+
+  function renderLibraryPanel(force) {
+    try {
+      const existing = document.getElementById(LIB_PANEL_ID);
+      if (settings.delproj_library_enabled !== true ||
+          !document.querySelector('th[data-fieldname="work_order"]')) {
+        if (existing) existing.remove();
+        return;
+      }
+      if (!libraryLoading) loadLibrary();
+      if (!libraryCache) return;
+      const panel = ensureLibraryPanel();
+      const q = (panel.querySelector('[data-filter]').value || '').trim().toLowerCase();
+      const all = libraryCache.filter((e) => e && e.code);
+      const mode = wideMode() === 'rail' ? libFilterMode : 'recent';
+      const rows = all.filter((e) => (!q || e.code.toLowerCase().includes(q) ||
+        String(e.name || '').toLowerCase().includes(q)) && (mode !== 'own' || e.source === 'manual'))
+        .sort((a, b) => (mode === 'most' ? (Number(b.count) || 0) - (Number(a.count) || 0) : 0) ||
+          (mode === 'recent' ? (b.source === 'manual') - (a.source === 'manual') : 0) ||
+          String(b.lastUsed || '').localeCompare(String(a.lastUsed || '')) ||
+          a.code.localeCompare(b.code));
+      const sig = mode + q + '\u0003' + rows.map((e) => [e.code, e.name, e.source, e.lastUsed, e.count].join('\u0001')).join('\u0002');
+      if (!force && panel.dataset.sig === sig) return;
+      panel.dataset.sig = sig;
+      panel.querySelector('[data-count]').textContent = `${all.length} st`;
+      const tbody = panel.querySelector('tbody');
+      tbody.textContent = '';
+      if (!rows.length) {
+        const tr = tbody.insertRow();
+        tr.className = 'pragresso-delproj-empty';
+        const td = tr.insertCell();
+        td.colSpan = 4;
+        td.textContent = all.length ? 'Inga träffar.' : 'Tomt — importera historik eller lägg till egna koder.';
+        return;
+      }
+      for (const e of rows) {
+        const tr = tbody.insertRow();
+        tr.setAttribute('data-code', e.code);
+        tr.title = 'Klicka för att fylla i på raden du redigerar';
+        const c = tr.insertCell();
+        c.className = 'code';
+        const code = document.createElement('span');
+        code.className = 'pragresso-delproj-code';
+        code.textContent = e.code;
+        c.appendChild(code);
+        if (e.source === 'manual') {
+          const m = document.createElement('span');
+          m.className = 'pragresso-lib-manual';
+          m.textContent = 'egen';
+          c.appendChild(m);
+        }
+        const meta = document.createElement('span');
+        meta.className = 'pragresso-lib-meta';
+        meta.textContent = libMetaText(e);
+        c.appendChild(meta);
+        if (e.name) {
+          const n = document.createElement('span');
+          n.className = 'pragresso-delproj-name';
+          n.textContent = e.name;
+          c.appendChild(n);
+        }
+        const last = tr.insertCell();
+        last.className = 'num small';
+        last.textContent = e.lastUsed || '—';
+        const cnt = tr.insertCell();
+        cnt.className = 'num small';
+        cnt.textContent = String(Number(e.count) || 0);
+        const nr = tr.insertCell();
+        nr.className = 'pragresso-lib-act';
+        const nb = document.createElement('button');
+        nb.type = 'button';
+        nb.className = 'pragresso-lib-newrow';
+        nb.setAttribute('data-newrow', e.code);
+        nb.title = 'Skapa en ny rad med denna kod';
+        nb.setAttribute('aria-label', `Ny rad med ${e.code}`);
+        nb.innerHTML = '＋<span class="pragresso-lib-newrow-label"> Ny rad</span>';
+        nr.appendChild(nb);
+        const x = nr;
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'pragresso-lib-del';
+        b.setAttribute('data-del', e.code);
+        b.title = 'Ta bort ur biblioteket';
+        b.textContent = '✕';
+        x.appendChild(b);
+      }
+    } catch (e) { /* ignore */ }
+  }
+
+  function isoOf(d) {
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  }
+
+  // Format a date the way the field already shows one: dd/mm/yyyy on this
+  // install, yyyy-mm-dd handled too. Unknown shapes return '' (abort).
+  function formatLikeField(sample, d) {
+    const dd = String(d.getDate()).padStart(2, '0');
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    let m = /^\d{2}(\D)\d{2}\1\d{4}$/.exec(sample);
+    if (m) return `${dd}${m[1]}${mm}${m[1]}${d.getFullYear()}`;
+    m = /^\d{4}(\D)\d{2}\1\d{2}$/.exec(sample);
+    if (m) return `${d.getFullYear()}${m[1]}${mm}${m[1]}${dd}`;
+    return '';
+  }
+
+  function waitForFrameLoad(frame, ms) {
+    return new Promise((resolve) => {
+      const t = setTimeout(() => { frame.onload = null; resolve(false); }, ms);
+      frame.onload = () => { clearTimeout(t); frame.onload = null; resolve(true); };
+    });
+  }
+
+  // The Period lookup (`202645`). Located through its label rather than a
+  // generated id: the editor sits in the same section as date_in_period.
+  function readImportPeriod(doc) {
+    try {
+      for (const ed of doc.querySelectorAll('input[name$="$Editor"]')) {
+        if (/^\d{6}$/.test((ed.value || '').trim())) return ed.value.trim();
+      }
+    } catch (e) { /* ignore */ }
+    return '';
+  }
+
+  // `load` fires before Agresso has filled the grid: verified live, a scan
+  // straight after it saw 1 row of a week that holds 8. Wait for the
+  // Tidtransaktion footer (emitted after the last data row) and for the
+  // row count to hold still across two polls.
+  async function waitForGridSettled(frame, ms) {
+    const until = Date.now() + ms;
+    let last = -1;
+    let stable = 0;
+    while (Date.now() < until) {
+      await new Promise((r) => setTimeout(r, 400));
+      const doc = frame.contentDocument;
+      const th = doc && doc.querySelector('th[data-fieldname="work_order"]');
+      const table = th && th.closest('table');
+      if (!table || !table.querySelector('tr.SumItem')) { stable = 0; continue; }
+      const n = table.rows.length;
+      stable = n === last ? stable + 1 : 0;
+      last = n;
+      if (stable >= 2) return true;
+    }
+    return false;
+  }
+
+  // Read every row's Delproj by its COLUMN, never by the cell's inline
+  // handler. Verified live: on a transferred (Överförd) week the cells carry
+  // TG.GS.ER(this, "work_order") with double quotes, so the earlier
+  // `onclick*="'work_order'"` selector matched nothing and 25 of 26 weeks
+  // came back empty — a week with 19 rows and 13 codes read as 0.
+  function scanDocDelprojCodes(doc) {
+    const out = new Map();
+    const th = doc.querySelector('th[data-fieldname="work_order"]');
+    if (!th) return out;
+    const hdr = th.parentElement;
+    const idx = Array.from(hdr.children).indexOf(th);
+    const table = th.closest('table');
+    for (const row of table.rows) {
+      if (row === hdr || row.classList.contains('SumItem') || row.classList.contains('EditRow')) continue;
+      if (row.parentElement.closest('table') !== table) continue;
+      // Only rows aligned 1:1 with the header (same rule as elsewhere).
+      if (row.children.length !== hdr.children.length) continue;
+      const td = row.children[idx];
+      if (!td || td.tagName !== 'TD') continue;
+      const title = td.getAttribute('title') || '';
+      const tm = title.match(/\s-\s([A-Z0-9][A-Z0-9\-\/]*)\s*$/i);
+      const first = td.firstElementChild && !td.firstElementChild.classList.contains(PROJECT_LABEL_CLASS) ? td.firstElementChild : td;
+      const code = tm ? tm[1] : (first.textContent || '').trim();
+      if (!code || !/^[A-Z0-9][A-Z0-9\-\/]*$/i.test(code)) continue;
+      if (!out.has(code)) out.set(code, extractProjectDescription(title) || '');
+    }
+    return out;
+  }
+
+
+  // Reported live: a 4-month import (17 weeks) died at week 11 and the
+  // panel came back showing its defaults. The grid document itself had
+  // been reloaded, which takes the hidden frame — and every code read so
+  // far, then only written at the end — down with it. So the job is
+  // resumable: its state lives in sessionStorage (per tab, survives the
+  // reload), every week is merged into the library as soon as it is read,
+  // and a fresh panel picks an interrupted job back up where it stopped.
+  // The frame is also sandboxed without allow-top-navigation, since
+  // Agresso pages talk to window.top and a hidden copy must not be able to
+  // navigate the real one.
+  const IMPORT_JOB_KEY = 'pragresso_library_import_job_v1';
+  const IMPORT_JOB_TTL_MS = 3 * 60 * 1000;
+  const IMPORT_MAX_RESUMES = 3;
+
+  function readImportJob() {
+    try { return JSON.parse(sessionStorage.getItem(IMPORT_JOB_KEY) || 'null'); } catch (e) { return null; }
+  }
+  function writeImportJob(job) {
+    try {
+      if (job) sessionStorage.setItem(IMPORT_JOB_KEY, JSON.stringify(job));
+      else sessionStorage.removeItem(IMPORT_JOB_KEY);
+    } catch (e) { /* ignore */ }
+  }
+
+  // Merge one week's codes. `weeks` holds the ISO dates the code was seen
+  // on, so re-importing the same span never inflates the count.
+  function mergeWeekIntoLibrary(codes, iso, period) {
+    let added = 0;
+    return writeLibrary((lib) => {
+      for (const [code, name] of codes) {
+        let hit = lib.find((e) => e.code === code);
+        if (!hit) {
+          hit = { code, name, source: 'auto', count: 0, lastUsed: '', weeks: [] };
+          lib.push(hit);
+          added += 1;
+        }
+        if (!hit.name && name) hit.name = name;
+        if (!hit.lastUsed || iso > hit.lastUsed) hit.lastUsed = iso;
+        if (/^\d{6}$/.test(period || '') && (!hit.lastPeriod || period > hit.lastPeriod)) hit.lastPeriod = period;
+        const weeks = Array.isArray(hit.weeks) ? hit.weeks : [];
+        if (weeks.indexOf(iso) === -1) {
+          weeks.push(iso);
+          weeks.sort();
+          if (weeks.length > 120) weeks.splice(0, weeks.length - 120);
+          hit.count = Math.max(Number(hit.count) || 0, 0) + 1;
+        }
+        hit.weeks = weeks;
+      }
+    }).then(() => added);
+  }
+
+  function resumeLibraryImportIfPending() {
+    if (libImportRunning) return;
+    const job = readImportJob();
+    if (!job) return;
+    if (Date.now() - (job.ts || 0) > IMPORT_JOB_TTL_MS || (job.resumes || 0) >= IMPORT_MAX_RESUMES) {
+      writeImportJob(null);
+      return;
+    }
+    job.resumes = (job.resumes || 0) + 1;
+    writeImportJob(job);
+    importLibraryHistory(null, job.weeks, job);
+  }
+
+  async function importLibraryHistory(_panel, weeks, resumeJob) {
+    if (libImportRunning) return;
+    libImportRunning = true;
+    const status = (t) => libStatus(document.getElementById(LIB_PANEL_ID), t);
+    const setBusy = (busy) => {
+      const b = document.querySelector(`#${LIB_PANEL_ID} [data-import]`);
+      if (b) b.textContent = busy ? 'Stoppa' : 'Importera';
+    };
+    setBusy(true);
+    const job = resumeJob || { weeks, next: 1, start: isoOf(new Date()), found: 0, added: 0, resumes: 0 };
+    job.ts = Date.now();
+    if (!job.before) {
+      try {
+        const got = await chrome.storage.local.get(LIBRARY_KEY);
+        job.before = (Array.isArray(got[LIBRARY_KEY]) ? got[LIBRARY_KEY] : []).map((e) => e.code);
+      } catch (e) { job.before = []; }
+    }
+    writeImportJob(job);
+    let frame = null;
+    let topTitle = null;
+    libImportCancel = false;
+    try {
+      const here = new URL(location.href);
+      const src = new URL('ContentContainer.aspx', here);
+      for (const k of ['type', 'menu_id']) {
+        const v = here.searchParams.get(k);
+        if (v) src.searchParams.set(k, v);
+      }
+      frame = document.createElement('iframe');
+      frame.id = IMPORT_FRAME_ID;
+      frame.setAttribute('aria-hidden', 'true');
+      frame.tabIndex = -1;
+      frame.style.cssText = 'position:fixed;left:-10000px;top:0;width:1400px;height:900px;visibility:hidden;';
+      status(resumeJob ? `Fortsätter importen från vecka ${job.next}…` : 'Öppnar tidrapporten…');
+      const firstLoad = waitForFrameLoad(frame, 30000);
+      frame.src = src.toString();
+      // Hosted in this document. The postback is submitted directly (see
+      // below), which never touches the U4 shell, so the frame's position
+      // in the window tree no longer matters.
+      const hostDoc = document;
+      // A run whose grid document was reloaded may leave its frame behind.
+      const stale = hostDoc.getElementById(IMPORT_FRAME_ID);
+      if (stale) stale.remove();
+      try { topTitle = window.top.document.title; } catch (e) { topTitle = null; }
+      hostDoc.body.appendChild(frame);
+      if (!await firstLoad) throw new Error('tidrapporten laddades inte');
+      await waitForGridSettled(frame, 15000);
+
+      const [y, m, d] = job.start.split('-').map(Number);
+      let periodBefore = readImportPeriod(frame.contentDocument);
+      for (let k = job.next; k <= job.weeks; ++k) {
+        if (libImportCancel) throw new Error('stoppad');
+        const doc = frame.contentDocument;
+        const dateEl = doc && doc.querySelector('input[name$="$date_in_period$i"]');
+        if (!dateEl) throw new Error('hittar inte datumfältet');
+        const target = ((dateEl.getAttribute('onchange') || '').match(/PostBack\('([^']*)'\)/) || [])[1];
+        const form = dateEl.form;
+        const evTarget = form && form.querySelector('input[name="__EVENTTARGET"]');
+        const evArg = form && form.querySelector('input[name="__EVENTARGUMENT"]');
+        if (!target || !evTarget) throw new Error('hittar inte postbacken');
+        const day = new Date(y, m - 1, d - 7 * k);
+        const text = formatLikeField(dateEl.value.trim(), day);
+        if (!text) throw new Error(`okänt datumformat (${dateEl.value})`);
+        status(`Läser vecka ${k} av ${job.weeks}…`);
+        dateEl.value = text;
+        const dirty = doc.querySelector(`input[name="${dateEl.name.replace(/\$i$/, '$IsDirty')}"]`);
+        if (dirty) dirty.value = 'true';
+        const loaded = waitForFrameLoad(frame, 30000);
+        // Plain ASP.NET postback: name the date field as the event target
+        // and submit the form natively. Agresso's own PostBack() first calls
+        // RaisePostBackEvent → U4.selfservice.Utils.findU4Parent, and in a
+        // hidden copy that the U4 shell never registered, Utils is undefined
+        // (verified live: it stayed undefined for 8 s after load), so it
+        // threw before ever reaching __doPostBack. The first run of a
+        // session sometimes got lucky, which is why this looked flaky.
+        // HTMLFormElement.prototype.submit skips onsubmit, which runs the
+        // same U4 lookup. Verified live: 12/10 → 202642, 05/10 → 202641.
+        evTarget.value = target;
+        if (evArg) evArg.value = '';
+        HTMLFormElement.prototype.submit.call(form);
+        if (!await loaded) throw new Error(`vecka ${k} laddades inte`);
+        if (!await waitForGridSettled(frame, 15000)) throw new Error(`vecka ${k} blev aldrig klar`);
+        try { if (topTitle != null) window.top.document.title = topTitle; } catch (e) { /* ignore */ }
+        const after = frame.contentDocument;
+        // Agresso snaps the date to the period's own start (28/10 comes back
+        // as 26/10), so the date cannot be compared verbatim. The period
+        // number must have moved instead; staying put means the postback
+        // was ignored and every further week would read the same grid.
+        const periodNow = readImportPeriod(after);
+        if (!periodNow || periodNow === periodBefore) throw new Error(`Agresso bytte inte period för ${text}`);
+        periodBefore = periodNow;
+        const codes = scanDocDelprojCodes(after);
+        job.added += await mergeWeekIntoLibrary(codes, shownPeriodIso(after) || isoOf(day), periodNow);
+        job.found += codes.size;
+        job.next = k + 1;
+        job.ts = Date.now();
+        writeImportJob(job);
+        await new Promise((r) => setTimeout(r, 300));
+      }
+      writeImportJob(null);
+      // "New" is measured against the library as it stood when the job
+      // began, not summed per week: a live 17-week run added two codes
+      // and the per-week tally still said 0.
+      let nowCodes = [];
+      try {
+        const got = await chrome.storage.local.get(LIBRARY_KEY);
+        nowCodes = (Array.isArray(got[LIBRARY_KEY]) ? got[LIBRARY_KEY] : []).map((e) => e.code);
+      } catch (e) { /* ignore */ }
+      const before = new Set(job.before || []);
+      const fresh = nowCodes.filter((c) => !before.has(c));
+      status(`Klart: ${job.weeks} veckor lästa, ${fresh.length} nya koder${fresh.length ? ` (${fresh.slice(0, 5).join(', ')}${fresh.length > 5 ? ', …' : ''})` : ''}.`);
+      renderLibraryPanel(true);
+    } catch (e) {
+      writeImportJob(null);
+      const why = e && e.message ? e.message : String(e);
+      status(why === 'stoppad'
+        ? `Import stoppad efter vecka ${job.next - 1} av ${job.weeks} (${job.added} nya koder sparade).`
+        : `Import avbruten vid vecka ${job.next}: ${why}`);
+    } finally {
+      if (frame) frame.remove();
+      try { if (topTitle != null) window.top.document.title = topTitle; } catch (e) { /* ignore */ }
+      setBusy(false);
+      libImportRunning = false;
+    }
+  }
+
+
+  // ── Widescreen layout (opt-in) ──────────────────────────────────────────
+  // `wide_layout`: 'off' (default) | 'right' | 'rail'.
+  //   right — the library and the Delproj summary sit in a sticky column to
+  //           the RIGHT of Tidtransaktion.
+  //   rail  — the library sits in a narrow sticky rail to the LEFT of
+  //           Tidtransaktion; the summary stays above Arbetstimmar.
+  //
+  // Agresso's own nodes are never moved. Verified live: each section is a
+  // child of `div.TabContainer`, and Tidtransaktion is its own child there
+  // (`#b__horiz_89` on this build) — separate from the block holding
+  // Tidrapport för and Arbetstimmar. So the TabContainer becomes a two-column
+  // CSS grid: every child spans both columns except Tidtransaktion's block,
+  // and our aside is inserted beside it, where auto-placement puts the two
+  // on one row. Only OUR panels move into the aside. Turning the option
+  // off removes the aside and the classes, and the panels go back to
+  // their usual places on the next pass.
+  const WIDE_ASIDE_ID = 'pragresso-wide-aside';
+  const WIDE_STYLE_ID = 'pragresso-wide-style';
+  const WIDE_HOST_CLASS = 'pragresso-wide-host';
+  const WIDE_MAIN_ATTR = 'data-pragresso-wide-main';
+  const WIDE_CSS = `
+    .${WIDE_HOST_CLASS} {
+      display: grid !important;
+      column-gap: 12px;
+      align-items: start;
+    }
+    .${WIDE_HOST_CLASS}[data-pragresso-wide="right"] { grid-template-columns: minmax(0, 1fr) clamp(340px, 22%, 460px); }
+    .${WIDE_HOST_CLASS}[data-pragresso-wide="rail"] { grid-template-columns: clamp(280px, 16%, 340px) minmax(0, 1fr); }
+    .${WIDE_HOST_CLASS}[data-pragresso-wide="right"][data-pragresso-wide-collapsed] { grid-template-columns: minmax(0, 1fr) 44px !important; }
+    .${WIDE_HOST_CLASS}[data-pragresso-wide="rail"][data-pragresso-wide-collapsed] { grid-template-columns: 44px minmax(0, 1fr) !important; }
+    .${WIDE_HOST_CLASS} > * { grid-column: 1 / -1; min-width: 0; }
+    .${WIDE_HOST_CLASS}[data-pragresso-wide="right"] > [${WIDE_MAIN_ATTR}] { grid-column: 1; }
+    .${WIDE_HOST_CLASS}[data-pragresso-wide="right"] > #${WIDE_ASIDE_ID} { grid-column: 2; }
+    .${WIDE_HOST_CLASS}[data-pragresso-wide="rail"] > #${WIDE_ASIDE_ID} { grid-column: 1; }
+    .${WIDE_HOST_CLASS}[data-pragresso-wide="rail"] > [${WIDE_MAIN_ATTR}] { grid-column: 2; }
+    .${WIDE_HOST_CLASS} > [${WIDE_MAIN_ATTR}] { width: auto !important; }
+    /* The column fits the visible window: its max-height is set by
+       fitWideAside from where it starts on screen down to Agresso's fixed
+       bottom toolbar. It never scrolls itself; the library list takes the
+       height left and scrolls inside, without a visible scrollbar. */
+    #${WIDE_ASIDE_ID} {
+      position: sticky;
+      top: 8px;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      gap: 0;
+    }
+    #${WIDE_ASIDE_ID} > #${LIB_PANEL_ID}:not(.collapsed) { flex: 1 1 auto; min-height: 0; display: flex !important; flex-direction: column; }
+    #${WIDE_ASIDE_ID} > #${LIB_PANEL_ID}:not(.collapsed) > .pragresso-delproj-body { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+    /* Only the list gives way; the search, status and filters keep their
+       height (seen live: the status line collapsed to 0 and its text ran
+       over the filter buttons). */
+    #${WIDE_ASIDE_ID} > #${LIB_PANEL_ID}:not(.collapsed) > .pragresso-delproj-body > * { flex: 0 0 auto; }
+    /* …except the list, which takes all the height left (seen live: the
+       rule above outranked it and the import fold ran off the column), and
+       loses the 220 px cap the panel has outside the column. */
+    #${WIDE_ASIDE_ID} > #${LIB_PANEL_ID}:not(.collapsed) > .pragresso-delproj-body > .pragresso-lib-scroll { flex: 1 1 auto !important; min-height: 60px; max-height: none !important; }
+    /* A slim scrollbar on the LEFT, so it is obvious there is more: the
+       list's direction is flipped for the scroll box and flipped back for
+       its content (no CSS property puts a scrollbar on the left). */
+    #${WIDE_ASIDE_ID} #${LIB_PANEL_ID} .pragresso-lib-scroll { flex: 1 1 auto; min-height: 60px; overflow: auto !important; direction: rtl; padding-left: 6px; }
+    #${WIDE_ASIDE_ID} #${LIB_PANEL_ID} .pragresso-lib-scroll > * { direction: ltr; }
+    #${WIDE_ASIDE_ID} #${LIB_PANEL_ID} .pragresso-lib-scroll::-webkit-scrollbar { width: 6px; }
+    #${WIDE_ASIDE_ID} #${LIB_PANEL_ID} .pragresso-lib-scroll::-webkit-scrollbar-thumb { background: rgba(0, 0, 0, 0.28); border-radius: 3px; }
+    #${WIDE_ASIDE_ID} #${LIB_PANEL_ID} .pragresso-lib-scroll::-webkit-scrollbar-track { background: rgba(0, 0, 0, 0.06); border-radius: 3px; }
+    #${WIDE_ASIDE_ID} > section:not(#${LIB_PANEL_ID}) { flex: 0 0 auto; }
+    #${WIDE_ASIDE_ID} > section { margin: 0 0 12px !important; }
+    #${WIDE_ASIDE_ID} > section:last-child { margin-bottom: 0 !important; }
+    /* The library keeps its own height (its content, capped), never the
+       grid's: see applyWideLayout. The list scrolls inside the cap. */
+    [data-pragresso-wide="right"] > #${WIDE_ASIDE_ID} { margin-top: 10px; }
+    /* Everything in the column collapsed: the column folds to a strip at
+       the page's edge, each panel a vertical tab. */
+    [data-pragresso-wide-collapsed] > #${WIDE_ASIDE_ID} { overflow: visible; }
+    [data-pragresso-wide-collapsed] > #${WIDE_ASIDE_ID} > section { padding: 8px 4px !important; }
+    [data-pragresso-wide-collapsed] > #${WIDE_ASIDE_ID} .pragresso-delproj-header { flex-direction: column; gap: 10px; margin: 0; }
+    [data-pragresso-wide-collapsed] > #${WIDE_ASIDE_ID} .pragresso-delproj-title { writing-mode: vertical-rl; transform: rotate(180deg); white-space: nowrap; }
+    [data-pragresso-wide-collapsed] > #${WIDE_ASIDE_ID} .pragresso-delproj-total { writing-mode: vertical-rl; transform: rotate(180deg); white-space: nowrap; font-size: 11px; }
+    [data-pragresso-wide-collapsed] > #${WIDE_ASIDE_ID} .pragresso-delproj-toggle { cursor: pointer; }
+    /* In the column the panels fold sideways, so the chevron (« at 0°)
+       follows the movement: open, it points at the page edge it folds
+       toward; folded, it points back into the page where it opens. */
+    [data-pragresso-wide="rail"] > #${WIDE_ASIDE_ID} .pragresso-delproj-toggle::before { transform: rotate(0deg) !important; }
+    [data-pragresso-wide="rail"] > #${WIDE_ASIDE_ID} .collapsed .pragresso-delproj-toggle::before { transform: rotate(180deg) !important; }
+    [data-pragresso-wide="right"] > #${WIDE_ASIDE_ID} .pragresso-delproj-toggle::before { transform: rotate(180deg) !important; }
+    [data-pragresso-wide="right"] > #${WIDE_ASIDE_ID} .collapsed .pragresso-delproj-toggle::before { transform: rotate(0deg) !important; }
+    /* Compact library in the aside (seen live: the full table overflowed a
+       side column, pushing ＋ Ny rad and ✕ out of view and wrapping the
+       dates). One line of code + name, a meta line "v.45 · 7 v" under it,
+       and the buttons always on the row. */
+    #${WIDE_ASIDE_ID} #${LIB_PANEL_ID} .pragresso-lib-tools { row-gap: 6px; }
+    #${WIDE_ASIDE_ID} #${LIB_PANEL_ID} .pragresso-lib-tools input[type="search"] { min-width: 0; flex: 1 1 0; }
+    #${WIDE_ASIDE_ID} #${LIB_PANEL_ID} .pragresso-lib-sep { flex-basis: 100%; height: 0; }
+    #${WIDE_ASIDE_ID} #${LIB_PANEL_ID} .pragresso-lib-status { flex-basis: 100%; }
+    #${WIDE_ASIDE_ID} #${LIB_PANEL_ID} thead,
+    #${WIDE_ASIDE_ID} #${LIB_PANEL_ID} td.num { display: none; }
+    #${WIDE_ASIDE_ID} #${LIB_PANEL_ID} table { table-layout: fixed; width: 100%; }
+    #${WIDE_ASIDE_ID} #${LIB_PANEL_ID} td.code { width: auto; overflow: hidden; }
+    #${WIDE_ASIDE_ID} #${LIB_PANEL_ID} td.code .pragresso-delproj-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block; }
+    #${WIDE_ASIDE_ID} #${LIB_PANEL_ID} td.pragresso-lib-act { width: 84px; text-align: right; white-space: nowrap; }
+    #${WIDE_ASIDE_ID} #${LIB_PANEL_ID} .pragresso-lib-meta { display: inline; }
+    .${WIDE_HOST_CLASS}[data-pragresso-wide="rail"] #${LIB_PANEL_ID} td.pragresso-lib-act { width: 64px; }
+    .${WIDE_HOST_CLASS}[data-pragresso-wide="rail"] #${LIB_PANEL_ID} .pragresso-lib-newrow .pragresso-lib-newrow-label { display: none; }`;
+
+  function wideMode() {
+    const v = settings.wide_layout;
+    const mode = v === 'right' || v === 'rail' ? v : 'off';
+    // Mirror the choice where early.js can read it synchronously at
+    // document_start, and onto <html> for the static :has() rules in
+    // styles.css that reserve the column before this script runs.
+    try {
+      if (localStorage.getItem('pragresso_wide_layout') !== mode) localStorage.setItem('pragresso_wide_layout', mode);
+    } catch (e) { /* ignore */ }
+    const root = document.documentElement;
+    if (mode === 'off') {
+      if (root.hasAttribute('data-pragresso-wide-pref')) root.removeAttribute('data-pragresso-wide-pref');
+      if (root.hasAttribute('data-pragresso-wide-folded')) root.removeAttribute('data-pragresso-wide-folded');
+    }
+    else if (root.getAttribute('data-pragresso-wide-pref') !== mode) root.setAttribute('data-pragresso-wide-pref', mode);
+    return mode;
+  }
+
+  // The aside our panels belong in, or null when the layout is off or the
+  // page has no Tidtransaktion grid.
+  function wideAside() {
+    return wideMode() === 'off' ? null : document.getElementById(WIDE_ASIDE_ID);
+  }
+
+  function removeWideLayout() {
+    try { removeWideExtras(); } catch (e) { /* ignore */ }
+    try { removeWideGridFit(); } catch (e) { /* ignore */ }
+    const aside = document.getElementById(WIDE_ASIDE_ID);
+    if (aside) {
+      // Hand our panels back to the page before dropping the aside; their
+      // own placement code re-seats them on the next pass.
+      const host = aside.parentElement;
+      Array.from(aside.children).forEach((p) => { if (host) host.insertBefore(p, aside); });
+      aside.remove();
+    }
+    document.querySelectorAll(`.${WIDE_HOST_CLASS}`).forEach((h) => {
+      h.classList.remove(WIDE_HOST_CLASS);
+      h.removeAttribute('data-pragresso-wide');
+      h.removeAttribute('data-pragresso-wide-collapsed');
+    });
+    document.querySelectorAll(`[${WIDE_MAIN_ATTR}]`).forEach((el) => el.removeAttribute(WIDE_MAIN_ATTR));
+  }
+
+  let wideLastWidth = 0;
+  let wideFitBound = false;
+
+  // The whole view fits the window and the page never scrolls; long
+  // content scrolls inside its own panel. Tidtransaktion fills the space
+  // down to Agresso's fixed bottom toolbar, always: its grid's wrapper
+  // (the div around table.DataListBlue) becomes the scroll area, the
+  // header row sticks to its top, and a spacer row of ours before the ∑
+  // row pushes ∑ and the Lägg till / Ta bort / Kopiera row to the panel's
+  // bottom when there are few rows. With many rows those two rows stick to
+  // the bottom instead (sticky on the <tr>: sticky <td>s did not hold).
+  // All verified live before being written here.
+  const WIDE_SPACER_CLASS = 'pw-spacer';
+  function fitWideGrid() {
+    try {
+      const main = document.querySelector('[data-pragresso-wide-main]');
+      const th = main && main.querySelector('th[data-fieldname="work_order"]');
+      const table = th && th.closest('table');
+      const outer = table && table.closest('table.DataListBlue');
+      const sc = outer && outer.parentElement;
+      if (!sc) return;
+      if (!sc.hasAttribute('data-pw-scroll')) sc.setAttribute('data-pw-scroll', '');
+      const box = main.querySelector('.u4-section-container .u4-section-container') || main;
+      let limit = window.innerHeight;
+      const tb = document.querySelector('.ToolBarContainer');
+      if (tb) {
+        const r = tb.getBoundingClientRect();
+        if (r.height && r.top < limit) limit = r.top;
+      }
+      limit -= 12;
+      const tail = Math.max(0, box.getBoundingClientRect().bottom - sc.getBoundingClientRect().bottom);
+      const h = `${Math.max(200, Math.floor(limit - sc.getBoundingClientRect().top - tail))}px`;
+      if (sc.style.height !== h) sc.style.setProperty('height', h);
+      // ∑ and buttons rows.
+      const sum = table.querySelector(':scope > tbody > tr.SumItem');
+      const btnRow = Array.from(table.rows).find((r) => r.querySelector('button[id$="_buttons__newButton"]'));
+      if (btnRow) btnRow.setAttribute('data-pw-buttons', '');
+      if (sum) {
+        const b = btnRow ? `${Math.round(btnRow.getBoundingClientRect().height)}px` : '0px';
+        if (sum.style.bottom !== b) sum.style.bottom = b;
+        let sp = table.querySelector(`:scope > tbody > tr.${WIDE_SPACER_CLASS}`);
+        if (!sp) {
+          sp = document.createElement('tr');
+          sp.className = WIDE_SPACER_CLASS;
+          sp.setAttribute('aria-hidden', 'true');
+          const td = document.createElement('td');
+          td.colSpan = th.parentElement.children.length;
+          sp.appendChild(td);
+          sum.parentElement.insertBefore(sp, sum);
+        }
+        const cell = sp.firstChild;
+        const cur = parseFloat(cell.style.height) || 0;
+        const gap = sc.clientHeight - (table.getBoundingClientRect().height - cur);
+        const want = `${Math.max(0, Math.floor(gap))}px`;
+        if (cell.style.height !== want) cell.style.height = want;
+      }
+    } catch (e) { /* ignore */ }
+  }
+
+  // Agresso's message bar (.LivemessagesContainer, fixed to the bottom,
+  // e.g. "Inga ändringar gjorda! · Information: 1" after a save) sat ON TOP
+  // of the inset bottom toolbar (seen live). It gets its own inset bar at
+  // the bottom (styles.css) and, while it is shown, the toolbar is lifted
+  // above it; the grid and library fit to the toolbar's top as before.
+  function fitWideToolbar() {
+    try {
+      const tb = document.querySelector('.ToolBarContainer');
+      if (!tb) return;
+      const msg = document.querySelector('.LivemessagesContainer');
+      const r = msg && msg.getClientRects().length ? msg.getBoundingClientRect() : null;
+      const want = r && r.height ? `${Math.round(window.innerHeight - r.top + 8)}px` : '';
+      if (want) {
+        if (tb.style.getPropertyValue('bottom') !== want) tb.style.setProperty('bottom', want, 'important');
+      } else if (tb.style.getPropertyValue('bottom')) {
+        tb.style.removeProperty('bottom');
+      }
+    } catch (e) { /* ignore */ }
+  }
+
+  function removeWideGridFit() {
+    document.querySelectorAll(`tr.${WIDE_SPACER_CLASS}`).forEach((r) => r.remove());
+    document.querySelectorAll('[data-pw-scroll]').forEach((e) => { e.removeAttribute('data-pw-scroll'); e.style.removeProperty('height'); });
+    document.querySelectorAll('[data-pw-buttons]').forEach((e) => e.removeAttribute('data-pw-buttons'));
+    document.querySelectorAll('tr.SumItem').forEach((r) => { r.style.bottom = ''; });
+  }
+
+  // Keep the whole column inside the visible window: from where it starts
+  // on screen (its sticky top once scrolled) to Agresso's fixed bottom
+  // toolbar (.ToolBarContainer, seen live covering the column's foot).
+  function fitWideAside() {
+    try {
+      const aside = document.getElementById(WIDE_ASIDE_ID);
+      if (!aside) return;
+      const top = Math.max(8, aside.getBoundingClientRect().top);
+      let bottom = window.innerHeight;
+      const tb = document.querySelector('.ToolBarContainer');
+      if (tb) {
+        const r = tb.getBoundingClientRect();
+        if (r.height && r.top > top && r.top < bottom) bottom = r.top;
+      }
+      // HEIGHT, not just a cap: the library fills the column down to the
+      // toolbar, level with Tidtransaktion, whatever it holds.
+      const h = `${Math.max(240, Math.floor(bottom - top - 12))}px`;
+      if (aside.style.height !== h) aside.style.height = h;
+      if (aside.style.maxHeight !== h) aside.style.maxHeight = h;
+    } catch (e) { /* ignore */ }
+  }
+  function applyWideLayout() {
+    try {
+      const mode = wideMode();
+      const th = document.querySelector('th[data-fieldname="work_order"]');
+      const host = th && th.closest('.TabContainer');
+      if (mode === 'off' || !host) { removeWideLayout(); return; }
+      const main = Array.from(host.children).find((c) => c.contains(th));
+      if (!main) { removeWideLayout(); return; }
+      // Nothing to put beside the grid (both panels off): no empty column.
+      // Decided from the SETTINGS, not from whether the panels exist yet:
+      // the column must be standing before they are created, so they are
+      // born in it. Building it afterwards and moving them in is what made
+      // the page jump down and back on every postback (each hours,
+      // Delproj or Aktivitet change replaces this document).
+      const wantLib = settings.delproj_library_enabled === true;
+      const wantSum = mode === 'right' && settings.show_delproj_summary !== false;
+      if (!wantLib && !wantSum) {
+        removeWideLayout();
+        return;
+      }
+      if (!document.getElementById(WIDE_STYLE_ID)) {
+        const style = document.createElement('style');
+        style.id = WIDE_STYLE_ID;
+        style.textContent = WIDE_CSS;
+        (document.head || document.documentElement).appendChild(style);
+      }
+      host.classList.add(WIDE_HOST_CLASS);
+      if (host.getAttribute('data-pragresso-wide') !== mode) host.setAttribute('data-pragresso-wide', mode);
+      document.querySelectorAll(`[${WIDE_MAIN_ATTR}]`).forEach((el) => { if (el !== main) el.removeAttribute(WIDE_MAIN_ATTR); });
+      if (!main.hasAttribute(WIDE_MAIN_ATTR)) main.setAttribute(WIDE_MAIN_ATTR, '');
+      let aside = document.getElementById(WIDE_ASIDE_ID);
+      if (!aside) {
+        aside = document.createElement('aside');
+        aside.id = WIDE_ASIDE_ID;
+        aside.setAttribute('aria-label', 'Delprojekt');
+      }
+      // right: after the grid; rail: before it. Either way adjacent, so
+      // auto-placement puts the two on the same row.
+      if (mode === 'right' ? main.nextSibling !== aside : aside.nextSibling !== main) {
+        host.insertBefore(aside, mode === 'right' ? main.nextSibling : main);
+      }
+      const lib = document.getElementById(LIB_PANEL_ID);
+      const sum = document.getElementById(DELPROJ_PANEL_ID);
+      if (lib && lib.parentElement !== aside) aside.appendChild(lib);
+      if (mode === 'right') {
+        if (sum && sum.parentElement !== aside) aside.appendChild(sum);
+      } else if (sum && sum.parentElement === aside) {
+        const anchor = findArbetstimmarAnchor();
+        if (anchor && anchor.parentNode) anchor.parentNode.insertBefore(sum, anchor);
+      }
+      // Every panel in the column collapsed → fold the column to a strip.
+      const panels = Array.from(aside.children);
+      const folded = panels.length > 0 && panels.every((p) => p.classList.contains('collapsed')) &&
+        (!wantLib || !!document.getElementById(LIB_PANEL_ID)) && (!wantSum || !!document.getElementById(DELPROJ_PANEL_ID));
+      if (folded !== host.hasAttribute('data-pragresso-wide-collapsed')) {
+        if (folded) host.setAttribute('data-pragresso-wide-collapsed', '');
+        else host.removeAttribute('data-pragresso-wide-collapsed');
+      }
+      // Folded is part of the first-paint reservation too (early.js).
+      const root = document.documentElement;
+      if (folded !== root.hasAttribute('data-pragresso-wide-folded')) {
+        if (folded) root.setAttribute('data-pragresso-wide-folded', '');
+        else root.removeAttribute('data-pragresso-wide-folded');
+      }
+      try {
+        const want = folded ? '1' : '0';
+        if (localStorage.getItem('pragresso_wide_folded') !== want) localStorage.setItem('pragresso_wide_folded', want);
+      } catch (e) { /* ignore */ }
+      // Top edge in line with what you SEE of Tidtransaktion: its title
+      // strip (`div.TopBlue`, measured live 10 px into its block). Written
+      // only when it changes. The column's HEIGHT is deliberately not tied
+      // to the grid any more: reported live, the library "moved all the
+      // time" — every postback re-rendered the grid, the column followed its
+      // height (384 → 1126 → 404 → 435 px measured), and the library jumped
+      // with it. It now keeps its own height: its content, capped at 70vh,
+      // with the list scrolling inside.
+      // B: the chips are the top of the main column, so the rail lines up
+      // with them (offset 0). A: line up with Tidtransaktion's title strip.
+      const strip = mode === 'rail' ? null : main.querySelector('.TopBlue');
+      if (mode === 'rail') {
+        if (aside.style.marginTop !== '0px') aside.style.marginTop = '0px';
+      } else if (strip) {
+        const top = Math.max(0, Math.round(strip.getBoundingClientRect().top - main.getBoundingClientRect().top));
+        if (top < 40 && aside.style.marginTop !== `${top}px`) aside.style.marginTop = `${top}px`;
+      }
+      fitWideToolbar();
+      fitWideAside();
+      fitWideGrid();
+      if (!wideFitBound) {
+        wideFitBound = true;
+        window.addEventListener('scroll', fitWideAside, { passive: true });
+        window.addEventListener('resize', () => { fitWideAside(); fitWideGrid(); });
+      }
+      renderWideHeader(host, mode);
+      if (mode === 'rail') renderWideChips(host, main);
+      else { const c = document.getElementById(WIDE_CHIPS_ID); if (c) c.remove(); }
+      // Agresso sizes the grid's flex Beskrivningstext column from the
+      // window on resize; nudge it once whenever the column it lives in
+      // changes width, so the grid fills its new box.
+      const w = Math.round(main.getBoundingClientRect().width);
+      if (w && w !== wideLastWidth) {
+        wideLastWidth = w;
+        try { window.dispatchEvent(new Event('resize')); } catch (e) { /* ignore */ }
+      }
+    } catch (e) { /* ignore */ }
+  }
+
+  // ── MCP tools (opt-in) ──────────────────────────────────────────────────
+  // Executes the AI-agent tools relayed by background.js (see the MCP bridge
+  // there and mcp/pragresso-mcp.js). The worker sends each call to every
+  // frame; only the frame that can serve it answers. Everything here
+  // re-checks `mcp_enabled`, so a stale port can never act on a page after
+  // the option is switched off. Submitting the report is not a tool.
+  const MCP_STATUS_RE = /^(utkast|klar|överförd|nekad|godkänd|avvisad|draft|ready|transferred|rejected|approved)\b/i;
+
+  function mcpReadTimesheet() {
+    const th = document.querySelector('th[data-fieldname="work_order"]');
+    const table = th && th.closest('table');
+    if (!table) return null;
+    const headerRow = th.parentElement;
+    const headers = Array.from(headerRow.children);
+    const field = (i) => (headers[i] && headers[i].getAttribute('data-fieldname')) || '';
+    const idx = (f) => headers.findIndex((h) => h.getAttribute('data-fieldname') === f);
+    const days = [];
+    headers.forEach((h, i) => {
+      if (!DAY_FIELD_RE.test(field(i))) return;
+      const m = (h.textContent || '').match(DAY_HEADER_DATE_RE);
+      days.push({ index: i, field: field(i), label: (h.textContent || '').trim().replace(/\s+/g, ' '), date: m ? m[0] : '' });
+    });
+    const remaining = sumCellsByDate(DAY_REMAINING_ID_RE);
+    const sums = sumCellsByDate(DAY_SUM_ID_RE);
+    let faktIdx = headers.findIndex((h) => FAKT_HEADER_RE.test((h.textContent || '').trim()) || FAKT_HEADER_RE.test(h.getAttribute('title') || ''));
+    const cellText = (row, f) => {
+      const i = idx(f);
+      const c = i >= 0 ? row.children[i] : null;
+      if (!c) return '';
+      const first = c.firstElementChild && !c.firstElementChild.classList.contains(PROJECT_LABEL_CLASS) ? c.firstElementChild : c;
+      return (first.textContent || '').trim();
+    };
+    const rows = [];
+    let n = 0;
+    for (const tr of table.rows) {
+      if (tr === headerRow || tr.classList.contains('SumItem')) continue;
+      if (tr.parentElement.closest('table') !== table) continue;
+      const del = tr.querySelector('input[name$="$_delete"]');
+      if (!del && !tr.classList.contains('EditRow')) continue;
+      const row = { row: n++, editing: tr.classList.contains('EditRow') };
+      if (row.editing) {
+        row.delproj = readEditRowDelprojCode(tr);
+        row.delproj_name = readEditRowDelprojName(tr);
+        const actEd = (editRowCellByField(tr, ['activity']) || tr).querySelector('input.slcEditor[name$="$Editor"]');
+        row.activity = actEd && editRowCellByField(tr, ['activity']) ? (readEditorSibling(actEd, 'RowValue') || actEd.value) : '';
+        const desc = tr.querySelector(STICKY_DESC_SEL);
+        row.description = desc ? desc.value : '';
+        row.unit = readEditRowUnit(tr);
+        row.hours = {};
+        for (const d of days) {
+          const inp = tr.querySelector(`input[name$="$${d.field}$i"]`);
+          const v = inp ? parseAgressoNum(inp.value) : NaN;
+          row.hours[d.date || d.field] = Number.isFinite(v) ? v : 0;
+        }
+        const fk = readEditRowFakt(tr);
+        row.fakt = Number.isFinite(fk) ? fk : null;
+      } else {
+        row.timecode = cellText(tr, 'timecode');
+        const wo = tr.children[idx('work_order')];
+        row.delproj = wo ? extractDelprojCode(wo) : '';
+        row.delproj_name = wo && wo.getAttribute('title') ? extractProjectDescription(wo.getAttribute('title')) : '';
+        row.activity = cellText(tr, 'activity');
+        row.description = cellText(tr, 'description');
+        row.unit = cellText(tr, REG_UNIT_FIELD);
+        row.hours = {};
+        for (const d of days) {
+          const v = readCellNumber(tr.children[d.index]);
+          row.hours[d.date || d.field] = Number.isFinite(v) ? v : 0;
+        }
+        const fk = faktIdx >= 0 ? readCellNumber(tr.children[faktIdx]) : NaN;
+        row.fakt = Number.isFinite(fk) ? fk : null;
+      }
+      row.sum = roundHours(Object.values(row.hours).reduce((a, b) => a + b, 0));
+      row.adjusted = row.fakt != null && row.fakt !== 0 && roundHours(row.fakt) !== row.sum;
+      rows.push(row);
+    }
+    const editors = Array.from(document.querySelectorAll('input[name$="$Editor"]')).map((e) => (e.value || '').trim());
+    const normal = document.querySelector('input[name$="normalhrs_schedule$i"]');
+    return {
+      period: readImportPeriod(document),
+      date_in_period: shownPeriodIso(document),
+      status: editors.find((v) => MCP_STATUS_RE.test(v)) || '',
+      normal_hours: normal ? parseAgressoNum(normal.value) : null,
+      days: days.map((d) => {
+        const r = remaining.get(d.date);
+        const s = sums.get(d.date);
+        const rem = r ? parseAgressoNum(r.textContent) : NaN;
+        const reg = s ? parseAgressoNum(s.textContent) : NaN;
+        return { date: d.date, label: d.label, registered: Number.isFinite(reg) ? reg : 0, remaining: Number.isFinite(rem) ? rem : null };
+      }),
+      rows,
+      note: 'Hours are keyed by dd/mm. Saving is available through save_timesheet; submitting is not available to agents.'
+    };
+  }
+
+  async function mcpHandle(tool, args) {
+    if (tool === 'get_timesheet') {
+      const t = mcpReadTimesheet();
+      if (!t) return null;
+      return t;
+    }
+    if (tool === 'list_library' || tool === 'add_library_code') {
+      // Answered by the grid frame only, so exactly one frame replies.
+      if (!document.querySelector('th[data-fieldname="work_order"]')) return null;
+      if (tool === 'add_library_code') {
+        const code = String(args.code || '').trim();
+        if (!/^[A-Z0-9][A-Z0-9\-\/]*$/i.test(code)) throw new Error(`Not a Delproj code: ${code}`);
+        const name = String(args.name || '').trim();
+        await writeLibrary((lib) => {
+          const hit = lib.find((e) => e.code === code);
+          if (hit) { hit.source = 'manual'; if (name) hit.name = name; }
+          else lib.push({ code, name, source: 'manual', count: 0, lastUsed: '' });
+        });
+        return { added: code };
+      }
+      const lib = await loadLibraryFresh();
+      const q = String(args.query || '').trim().toLowerCase();
+      return lib.filter((e) => e && e.code && (!q || e.code.toLowerCase().includes(q) || String(e.name || '').toLowerCase().includes(q)))
+        .map((e) => ({ code: e.code, name: e.name || '', source: e.source, last_used: e.lastUsed || '', weeks: Number(e.count) || 0 }))
+        .sort((a, b) => String(b.last_used).localeCompare(String(a.last_used)) || a.code.localeCompare(b.code));
+    }
+    if (tool === 'add_row' || tool === 'update_row') {
+      try { if (window.top !== window) return null; } catch (e) { return null; }
+      return mcpRowTool(tool, args);
+    }
+    if (tool === 'save_timesheet') {
+      try { if (window.top !== window) return null; } catch (e) { return null; }
+      if (!onTimesheetPage) throw new Error('The Agresso tab is not on the time registration page.');
+      // The agent asked for this save explicitly, so it is not subject to
+      // the autosave toggle — only to the same cooldown autosave keeps.
+      const since = Date.now() - lastSaveAt;
+      if (lastSaveAt && since < SAVE_COOLDOWN_MS) await new Promise((r) => setTimeout(r, SAVE_COOLDOWN_MS - since));
+      setIndicator('saving', 'Saving…', 'Requested by AI agent');
+      triggerShortcutSave();
+      lastSaveAt = Date.now();
+      startDialogSweep('mcp save');
+      await new Promise((r) => setTimeout(r, 2500));
+      const noChanges = (() => { try { return isNoChangesBannerVisible(); } catch (e) { return false; } })();
+      // Keep the indicator honest about autosave: a paused autosave stays
+      // shown as paused, with the agent's save noted beside it.
+      const at = new Date().toLocaleTimeString(undefined, { hour12: false, hour: '2-digit', minute: '2-digit' });
+      const what = noChanges ? `AI agent saved ${at} (no changes)` : `Saved by AI agent ${at}`;
+      if (getToggleEnabled()) setIndicator('saved', 'Saved', what);
+      else setIndicator('pending', 'Autosave disabled', `Paused · ${what}`);
+      return { save_requested: true, no_changes: noChanges, note: 'Call get_timesheet to confirm what was saved. The report was not submitted.' };
+    }
+    throw new Error(`Unknown tool: ${tool}`);
+  }
+
+  async function loadLibraryFresh() {
+    try {
+      const got = await chrome.storage.local.get(LIBRARY_KEY);
+      return Array.isArray(got && got[LIBRARY_KEY]) ? got[LIBRARY_KEY] : [];
+    } catch (e) { return []; }
+  }
+
+  try {
+    chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
+      if (!msg || msg.type !== 'mcp-call') return false;
+      if (settings.mcp_enabled !== true) return false;
+      // Decide synchronously whether this frame serves the call. The
+      // worker resolves on the FIRST sendResponse from any frame, so a
+      // frame that cannot serve must stay silent rather than answer empty.
+      const tool = String(msg.tool || '');
+      let isTop = false;
+      try { isTop = window.top === window; } catch (e) { isTop = false; }
+      const topTools = ['save_timesheet', 'add_row', 'update_row'];
+      const serves = topTools.indexOf(tool) !== -1 ? isTop : !!document.querySelector('th[data-fieldname="work_order"]');
+      if (!serves) return false;
+      mcpHandle(tool, msg.args || {}).then((result) => {
+        sendResponse({ ok: true, result: result == null ? {} : result });
+      }).catch((e) => {
+        sendResponse({ ok: false, error: e && e.message ? e.message : String(e) });
+      });
+      return true;
+    });
+  } catch (e) { /* ignore */ }
+
+  // ── MCP row editing (top frame) ─────────────────────────────────────────
+  // add_row / update_row run in the TOP frame: every hours change is a
+  // postback that replaces the grid document (and the content script in
+  // it), while the top frame lives on. From here the grid document is
+  // reached through getAllDocuments() and re-found after every postback.
+  //
+  // Verified live against CR 26.1:
+  //   - `Lägg till` (…_buttons__newButton) adds a row already in edit mode,
+  //     Tidkod prefilled `N`.
+  //   - Text typed with execCommand('insertText') behaves like typing: the
+  //     lookup editors resolve on blur (`123456-7` → RowValue 123456-7,
+  //     RowDescription "Kund AB, …"), with no postback.
+  //   - But resolution is "first match", not "exact code": `SPE` typed into
+  //     Aktivitet resolved to `AZS` (Azure Specialist). So after the blur the
+  //     resolved code is compared to the one asked for; when they differ,
+  //     RowValue is set to the exact code and RowDescription cleared, and
+  //     the next postback has the server resolve it (`SPE` →
+  //     "Specialistkonsultation"). A code the row cannot use comes back as
+  //     `[NY]`, which is reported as an error, not papered over.
+  //   - A day cell's change posts back; the description survives it.
+  // Autosave is held off for the whole operation (mcpRowBusy), so a
+  // half-filled row is never saved behind the agent's back.
+  let mcpRowBusy = false;
+  const MCP_POSTBACK_MS = 20000;
+
+  function mcpGridDoc() {
+    return getAllDocuments().find((d) => d && d.querySelector && d.querySelector('th[data-fieldname="work_order"]')) || null;
+  }
+  const mcpSleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+  async function mcpWaitFor(fn, ms, what) {
+    const until = Date.now() + ms;
+    while (Date.now() < until) {
+      let v = null;
+      try { v = fn(); } catch (e) { v = null; }
+      if (v) return v;
+      await mcpSleep(250);
+    }
+    throw new Error(`Timed out waiting for ${what}.`);
+  }
+
+  // Wait for the grid document to be replaced by a postback and settle.
+  async function mcpAfterPostback(prevDoc, what) {
+    await mcpWaitFor(() => {
+      const d = mcpGridDoc();
+      return d && d !== prevDoc && d.readyState !== 'loading' && d.querySelector('tr.SumItem') ? d : null;
+    }, MCP_POSTBACK_MS, what);
+    await mcpSleep(600);
+    return mcpGridDoc();
+  }
+
+  function mcpType(doc, el, text) {
+    el.focus();
+    try { el.select(); } catch (e) { /* ignore */ }
+    let ok = false;
+    try { ok = doc.execCommand('insertText', false, String(text)); } catch (e) { ok = false; }
+    if (!ok || el.value !== String(text)) {
+      el.value = String(text);
+      el.dispatchEvent(new (doc.defaultView.Event)('input', { bubbles: true }));
+    }
+  }
+
+  function mcpSibling(editor, suffix) {
+    const wanted = editor.name.replace(/\$Editor$/, '$' + suffix);
+    const scope = editor.closest('td') || editor.parentElement;
+    return Array.from(scope.querySelectorAll('input')).find((i) => i.name === wanted) || null;
+  }
+
+  function mcpEditRow(doc) {
+    return doc && doc.querySelector('tr.EditRow');
+  }
+
+  function mcpLookupEditor(row, field) {
+    if (field === 'work_order') return findEditRowDelprojEditor(row);
+    const cell = editRowCellByField(row, [field]);
+    return cell ? cell.querySelector('input.slcEditor, input[name$="$Editor"]') : null;
+  }
+
+  function mcpDescEditor(row) {
+    return row.querySelector(STICKY_DESC_SEL);
+  }
+
+  // Set one lookup (Tidkod / Delproj / Aktivitet) to an EXACT code.
+  async function mcpSetLookup(field, code, label) {
+    const doc = mcpGridDoc();
+    const row = mcpEditRow(doc);
+    const ed = row && mcpLookupEditor(row, field);
+    if (!ed) throw new Error(`Cannot find the ${label} field on the row.`);
+    mcpType(doc, ed, code);
+    const away = mcpDescEditor(row) || row.querySelector('input[name$="$reg_value1$i"]');
+    if (away && away !== ed) away.focus(); else ed.blur();
+    await mcpSleep(1200);
+    const d2 = mcpGridDoc();
+    const r2 = mcpEditRow(d2);
+    const e2 = r2 && mcpLookupEditor(r2, field);
+    if (!e2) throw new Error(`The row left edit mode while setting ${label}.`);
+    const rv = mcpSibling(e2, 'RowValue');
+    if (rv && rv.value !== code) {
+      // First-match resolution picked another code: force the exact one and
+      // let the next postback have the server resolve it.
+      if (e2.value !== code) mcpType(d2, e2, code);
+      rv.value = code;
+      const rd = mcpSibling(e2, 'RowDescription');
+      if (rd) rd.value = '';
+      const away2 = mcpDescEditor(r2);
+      if (away2) away2.focus();
+      await mcpSleep(400);
+      return { field: label, code, resolved: false };
+    }
+    return { field: label, code, resolved: true, name: (mcpSibling(e2, 'RowDescription') || {}).value || '' };
+  }
+
+  async function mcpSetDescription(text) {
+    const doc = mcpGridDoc();
+    const row = mcpEditRow(doc);
+    const el = row && mcpDescEditor(row);
+    if (!el) throw new Error('Cannot find Beskrivningstext on the row.');
+    mcpType(doc, el, text);
+    await mcpSleep(300);
+  }
+
+  // hours: { "dd/mm": number }. Each changed cell posts back.
+  async function mcpSetHours(hours) {
+    let posted = 0;
+    for (const [date, value] of Object.entries(hours || {})) {
+      const n = Number(value);
+      if (!Number.isFinite(n) || n < 0 || n > 24) throw new Error(`Invalid hours for ${date}: ${value}`);
+      const doc = mcpGridDoc();
+      const th = doc.querySelector('th[data-fieldname="work_order"]');
+      const head = Array.from(th.parentElement.children).find((h) =>
+        DAY_FIELD_RE.test(h.getAttribute('data-fieldname') || '') &&
+        ((h.textContent || '').match(DAY_HEADER_DATE_RE) || [])[0] === normDate(date));
+      if (!head) throw new Error(`No day ${date} in this period.`);
+      const row = mcpEditRow(doc);
+      const inp = row && row.querySelector(`input[name$="$${head.getAttribute('data-fieldname')}$i"]`);
+      if (!inp) throw new Error(`Cannot find the hours cell for ${date}.`);
+      const cur = parseAgressoNum(inp.value);
+      if (Number.isFinite(cur) && roundHours(cur) === roundHours(n)) continue;
+      mcpType(doc, inp, n.toFixed(2));
+      const away = mcpDescEditor(row) || row.querySelector('input[name$="$_delete"]');
+      if (away) away.focus(); else inp.blur();
+      await mcpAfterPostback(doc, `the hours for ${date} to be accepted`);
+      posted += 1;
+    }
+    return posted;
+  }
+
+  function normDate(s) {
+    const m = String(s || '').match(/^(\d{1,2})\D(\d{1,2})/);
+    return m ? `${m[1].padStart(2, '0')}/${m[2].padStart(2, '0')}` : String(s || '');
+  }
+
+  // A final postback (the Arbetstimmar `Uppdatera` button is a harmless one)
+  // makes the server resolve any forced lookup before we report back.
+  async function mcpRefresh() {
+    const doc = mcpGridDoc();
+    const btn = Array.from(doc.querySelectorAll('button[id*="_buttons__cb"]')).find((b) => /uppdatera|update/i.test(b.textContent || ''));
+    if (!btn) return;
+    btn.click();
+    await mcpAfterPostback(doc, 'the time report to refresh');
+  }
+
+  function mcpSnapshotEditRow() {
+    const doc = mcpGridDoc();
+    const row = mcpEditRow(doc);
+    if (!row) return null;
+    const look = (f) => {
+      const e = mcpLookupEditor(row, f);
+      return e ? { code: (mcpSibling(e, 'RowValue') || {}).value || e.value, name: (mcpSibling(e, 'RowDescription') || {}).value || '' } : null;
+    };
+    const th = doc.querySelector('th[data-fieldname="work_order"]');
+    const hours = {};
+    Array.from(th.parentElement.children).forEach((h) => {
+      const f = h.getAttribute('data-fieldname') || '';
+      if (!DAY_FIELD_RE.test(f)) return;
+      const inp = row.querySelector(`input[name$="$${f}$i"]`);
+      const d = ((h.textContent || '').match(DAY_HEADER_DATE_RE) || [])[0] || f;
+      const v = inp ? parseAgressoNum(inp.value) : NaN;
+      if (Number.isFinite(v) && v) hours[d] = v;
+    });
+    const desc = mcpDescEditor(row);
+    return { timecode: look('timecode'), delproj: look('work_order'), activity: look('activity'), description: desc ? desc.value : '', hours };
+  }
+
+  function mcpCheckResolved(snap) {
+    const bad = [];
+    for (const [k, label] of [['delproj', 'Delproj'], ['activity', 'Aktivitet'], ['timecode', 'Tidkod']]) {
+      const v = snap && snap[k];
+      if (!v || !v.code) continue;
+      if (LOOKUP_NEW_MARKERS.indexOf(String(v.name).toUpperCase()) !== -1 || LOOKUP_NEW_RE.test(v.name) || !v.name) {
+        bad.push(`${label} ${v.code} is not valid on this row (Agresso: ${v.name || 'no match'})`);
+      }
+    }
+    return bad;
+  }
+
+  async function mcpFillRow(args) {
+    const steps = [];
+    if (args.timecode) steps.push(await mcpSetLookup('timecode', String(args.timecode).trim(), 'Tidkod'));
+    if (args.delproj) steps.push(await mcpSetLookup('work_order', String(args.delproj).trim(), 'Delproj'));
+    if (args.activity) steps.push(await mcpSetLookup('activity', String(args.activity).trim(), 'Aktivitet'));
+    if (args.description != null) await mcpSetDescription(String(args.description));
+    const posted = args.hours ? await mcpSetHours(args.hours) : 0;
+    // A forced lookup is only resolved by the server on a postback.
+    if (steps.some((st) => !st.resolved) && !posted) await mcpRefresh();
+    // The description can be replaced by a Delproj / Aktivitet default on
+    // a postback; write it back if so.
+    const snap0 = mcpSnapshotEditRow();
+    if (args.description != null && snap0 && snap0.description !== String(args.description)) {
+      await mcpSetDescription(String(args.description));
+    }
+    const snap = mcpSnapshotEditRow();
+    const problems = mcpCheckResolved(snap);
+    return { row: snap, problems, saved: false, note: problems.length
+      ? 'The row was filled but Agresso did not accept everything; fix it with update_row or ask the user. Nothing was saved.'
+      : 'Filled, not saved. Call save_timesheet when the user wants it saved.' };
+  }
+
+  async function mcpAddRow(args) {
+    if (!args || !args.delproj) throw new Error('delproj is required.');
+    const doc = mcpGridDoc();
+    if (!doc) throw new Error('The time registration page is not open.');
+    const btn = doc.querySelector('button[id$="_buttons__newButton"]');
+    if (!btn || btn.disabled) throw new Error('Cannot add a row here (no enabled "Lägg till" button — is the report still a draft?).');
+    const before = doc.querySelectorAll('input[name$="$_delete"]').length;
+    btn.click();
+    await mcpWaitFor(() => {
+      const d = mcpGridDoc();
+      const r = d && mcpEditRow(d);
+      const ed = r && findEditRowDelprojEditor(r);
+      return d && d.querySelectorAll('input[name$="$_delete"]').length > before && ed && !(ed.value || '').trim() ? d : null;
+    }, MCP_POSTBACK_MS, 'the new row');
+    await mcpSleep(600);
+    return mcpFillRow(args);
+  }
+
+  async function mcpUpdateRow(args) {
+    const n = Number(args && args.row);
+    if (!Number.isInteger(n) || n < 0) throw new Error('row must be the row number from get_timesheet.');
+    let doc = mcpGridDoc();
+    if (!doc) throw new Error('The time registration page is not open.');
+    const rows = () => Array.from(mcpGridDoc().querySelectorAll('input[name$="$_delete"]')).map((i) => i.closest('tr'));
+    const target = rows()[n];
+    if (!target) throw new Error(`There is no row ${n}.`);
+    if (!target.classList.contains('EditRow')) {
+      // Open the row for editing the way a click does: on its description.
+      const cell = Array.from(target.children).find((td) => getCellFieldName(td) === 'description') ||
+        Array.from(target.children).find((td) => /TG\.GS\.ER/.test(td.getAttribute('onclick') || ''));
+      if (!cell) throw new Error(`Row ${n} cannot be edited (it may be locked).`);
+      cell.click();
+      await mcpWaitFor(() => { const t = rows()[n]; return t && t.classList.contains('EditRow') ? t : null; }, MCP_POSTBACK_MS, `row ${n} to open for editing`);
+      await mcpSleep(600);
+    }
+    return mcpFillRow(args);
+  }
+
+  async function mcpRowTool(tool, args) {
+    if (mcpRowBusy) throw new Error('Another row edit is still running.');
+    mcpRowBusy = true;
+    try {
+      setIndicator('pending', 'AI agent editing', tool === 'add_row' ? 'Adding a row…' : 'Updating a row…');
+      return tool === 'add_row' ? await mcpAddRow(args) : await mcpUpdateRow(args);
+    } finally {
+      mcpRowBusy = false;
+      try { if (getToggleEnabled()) startTimer(IDLE_TIMEOUT_MS, 'idle'); else setIndicator('pending', 'Autosave disabled', 'Paused'); } catch (e) { /* ignore */ }
+    }
+  }
+
+  // ── Widescreen layouts A / B: header, chips, filters ────────────────────
+  // The rest of the mockups' experience. Agresso's own "Tidrapport för" and
+  // "Arbetstimmar" sections are hidden by static CSS (styles.css, keyed on
+  // the date field and the Återstående sum row, so it holds from the first
+  // frame) and stay fully working behind "Period & arbetstimmar ▾". Our
+  // header sits in space styles.css reserves at the top of the TabContainer,
+  // so creating it moves nothing. Everything here is read-only towards
+  // Agresso: it reads values already on the page.
+  const WIDE_HEADER_ID = 'pragresso-wide-header';
+  const WIDE_CHIPS_ID = 'pragresso-wide-chips';
+  const WIDE_DETAILS_KEY = 'pragresso_wide_details';
+
+  function wideFacts() {
+    const editors = Array.from(document.querySelectorAll('input[name$="$Editor"]')).map((e) => (e.value || '').trim());
+    const nameEl = document.querySelector('input.slcEditorReadOnly[name$="$Editor"]');
+    const dateEl = document.querySelector('input[name$="$date_in_period$i"]');
+    const normal = document.querySelector('input[name$="normalhrs_schedule$i"]');
+    const th = document.querySelector('th[data-fieldname="work_order"]');
+    const dates = th ? Array.from(th.parentElement.children)
+      .filter((h) => DAY_FIELD_RE.test(h.getAttribute('data-fieldname') || ''))
+      .map((h) => ((h.textContent || '').match(DAY_HEADER_DATE_RE) || [])[0]).filter(Boolean) : [];
+    const total = document.querySelector('tr.SumItem > td[id$="__sumRow_reg_value"]');
+    const faktCell = document.querySelector(`tr.SumItem > td[${FAKT_SUM_ATTR}]`);
+    const remaining = sumCellsByDate(DAY_REMAINING_ID_RE);
+    let left = 0;
+    const leftDays = [];
+    for (const [d, td] of remaining) {
+      const v = parseAgressoNum(td.textContent);
+      if (Number.isFinite(v) && v > 0) { left += v; leftDays.push(d); }
+    }
+    const period = readImportPeriod(document);
+    const rows = document.querySelectorAll(`tr[${ADJ_ROW_MARK}]`).length;
+    return {
+      name: nameEl ? nameEl.value.trim() : '',
+      date: dateEl ? dateEl.value.trim() : '',
+      period,
+      week: /^\d{6}$/.test(period) ? String(parseInt(period.slice(4), 10)) : '',
+      status: editors.find((v) => MCP_STATUS_RE.test(v)) || '',
+      normal: normal ? parseAgressoNum(normal.value) : NaN,
+      from: dates[0] || '',
+      to: dates[dates.length - 1] || '',
+      registered: total ? parseAgressoNum(total.textContent) : NaN,
+      fakt: faktCell ? parseAgressoNum(faktCell.textContent) : NaN,
+      left: roundHours(left),
+      leftDays,
+      adjusted: rows
+    };
+  }
+
+  const fmtH = (n) => (Number.isFinite(n) ? n.toFixed(2) : '—');
+
+  function setWideDetails(open) {
+    const root = document.documentElement;
+    if (open) root.setAttribute('data-pragresso-wide-details', ''); else root.removeAttribute('data-pragresso-wide-details');
+    try { localStorage.setItem(WIDE_DETAILS_KEY, open ? '1' : '0'); } catch (e) { /* ignore */ }
+    const b = document.querySelector(`#${WIDE_HEADER_ID} [data-details]`);
+    if (b) { b.setAttribute('aria-expanded', open ? 'true' : 'false'); b.textContent = open ? 'Period & arbetstimmar ▴' : 'Period & arbetstimmar ▾'; }
+    try { window.dispatchEvent(new Event('resize')); } catch (e) { /* ignore */ }
+  }
+
+  function el(tag, cls, text) {
+    const n = document.createElement(tag);
+    if (cls) n.className = cls;
+    if (text != null) n.textContent = text;
+    return n;
+  }
+
+  function renderWideHeader(host, mode) {
+    let hdr = document.getElementById(WIDE_HEADER_ID);
+    if (!hdr) {
+      hdr = el('header');
+      hdr.id = WIDE_HEADER_ID;
+      host.insertBefore(hdr, host.firstChild);
+    } else if (hdr.parentElement !== host) {
+      host.insertBefore(hdr, host.firstChild);
+    }
+    const f = wideFacts();
+    const sig = mode + JSON.stringify(f);
+    if (hdr.dataset.sig === sig) return;
+    hdr.dataset.sig = sig;
+    hdr.textContent = '';
+    const line = (label, value, accent) => {
+      const s = el('span', 'pw-fact');
+      if (label) s.appendChild(el('span', 'pw-label', label + ' '));
+      s.appendChild(el('strong', accent ? 'pw-accent' : '', value));
+      return s;
+    };
+    if (mode === 'rail') {
+      hdr.appendChild(el('strong', 'pw-title', f.week ? `Vecka ${f.week} · ${f.period}` : (f.period || 'Tidrapport')));
+      buildHeaderControls(hdr);
+      hdr.appendChild(el('span', 'pw-muted', [f.from && f.to ? `${f.from}–${f.to}` : '', f.name].filter(Boolean).join(' · ')));
+      hdr.appendChild(el('span', 'pw-grow'));
+      const reg = line('Rapporterat', `${fmtH(f.registered)}${Number.isFinite(f.normal) ? ' / ' + fmtH(f.normal) : ''} h`);
+      hdr.appendChild(reg);
+      if (Number.isFinite(f.fakt)) hdr.appendChild(line('Fakturerat', `${fmtH(f.fakt)} h`, true));
+    } else {
+      hdr.appendChild(el('strong', 'pw-title', 'Tidrapport för'));
+      hdr.appendChild(el('span', 'pw-muted', f.name));
+      buildHeaderControls(hdr);
+      if (f.period) hdr.appendChild(line('Period', f.period));
+      hdr.appendChild(el('span', 'pw-grow'));
+      if (Number.isFinite(f.normal)) hdr.appendChild(line('Normaltimmar', fmtH(f.normal)));
+      hdr.appendChild(line('Återstår', `${fmtH(f.left)} h`, true));
+      if (f.adjusted) hdr.appendChild(el('span', 'pw-muted', `${f.adjusted} justerade`));
+    }
+    const btn = el('button', 'pw-details', '');
+    btn.type = 'button';
+    btn.setAttribute('data-details', '');
+    btn.addEventListener('click', () => setWideDetails(!document.documentElement.hasAttribute('data-pragresso-wide-details')));
+    hdr.appendChild(btn);
+    setWideDetails(document.documentElement.hasAttribute('data-pragresso-wide-details'));
+  }
+
+  // B: the Delproj summary as chips above the grid.
+  function renderWideChips(_host, main) {
+    let chips = document.getElementById(WIDE_CHIPS_ID);
+    if (!chips) {
+      chips = el('div');
+      chips.id = WIDE_CHIPS_ID;
+      chips.setAttribute('aria-label', 'Delproj sammanställning');
+    }
+    // Inside Tidtransaktion's block, above it — see styles.css.
+    if (chips.parentElement !== main || main.firstChild !== chips) main.insertBefore(chips, main.firstChild);
+    let data = null;
+    try { data = recomputeDelprojSummary(); } catch (e) { data = null; }
+    const list = data ? data.list : [];
+    const sig = list.map((g) => g.code + ':' + g.effective).join('|');
+    if (chips.dataset.sig === sig) return;
+    chips.dataset.sig = sig;
+    chips.textContent = '';
+    for (const g of list) {
+      const c = el('div', 'pw-chipcard');
+      c.appendChild(el('strong', '', g.code));
+      if (g.name) c.appendChild(el('span', 'pw-muted', String(g.name).split(',')[0]));
+      c.appendChild(el('span', 'pw-accent', `${g.effective.toFixed(2)} h`));
+      chips.appendChild(c);
+    }
+  }
+
+  function removeWideExtras() {
+    const h = document.getElementById(WIDE_HEADER_ID);
+    if (h) h.remove();
+    const c = document.getElementById(WIDE_CHIPS_ID);
+    if (c) c.remove();
+  }
+
+  // ── Header controls: week navigation, date picker, status ───────────────
+  // These drive Agresso's OWN fields in the (hidden) "Tidrapport för"
+  // section, the way a person would, so Agresso's rules apply unchanged.
+  //
+  // Date: verified live, the field's inline onchange is
+  //   IsMandatory → setDirty → FilterWasTriggered → IsLegalInputValue →
+  //   PostBack('<target>')
+  // and FilterWasTriggered only reads a `data-filterwastriggered` flag set
+  // by Agresso's filter popup. So the new date is written, `$IsDirty` set
+  // and the field's own PostBack('<target>') run through a temporary inline
+  // onclick (inline handlers execute in the page's world). In the visible
+  // page the U4 shell is registered, so this is Agresso's normal path; if no
+  // navigation starts within 3 s, the form is submitted directly with
+  // __EVENTTARGET (the path the library import uses).
+  //
+  // Status: the choices sit in the field's XML island
+  // (<item><value>P</value><descr>Utkast</descr>…<value>N</value>Klar), and
+  // status takes effect when the report is saved. Picking Klar therefore
+  // only arms a "Spara som Klar" button; nothing changes until that is
+  // pressed, and pressing it saves at once, so autosave can never submit
+  // a report because of a stray selection.
+  function wideDateField() { return document.querySelector('input[name$="$date_in_period$i"]'); }
+
+  function parseFieldDate(v) {
+    let m = /^(\d{2})(\D)(\d{2})\2(\d{4})$/.exec(v || '');
+    if (m) return new Date(+m[4], +m[3] - 1, +m[1]);
+    m = /^(\d{4})(\D)(\d{2})\2(\d{2})$/.exec(v || '');
+    if (m) return new Date(+m[1], +m[3] - 1, +m[4]);
+    return null;
+  }
+
+  function runInlineInPage(code) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.style.display = 'none';
+    b.setAttribute('onclick', `${code};return false;`);
+    (document.body || document.documentElement).appendChild(b);
+    b.click();
+    b.remove();
+  }
+
+  function navigateToDate(d) {
+    const el = wideDateField();
+    if (!el || !d) return;
+    const text = formatLikeField(el.value.trim(), d);
+    if (!text || text === el.value.trim()) return;
+    const target = ((el.getAttribute('onchange') || '').match(/PostBack\('([^']*)'\)/) || [])[1];
+    if (!target) return;
+    el.value = text;
+    const dirty = document.querySelector(`input[name="${el.name.replace(/\$i$/, '$IsDirty')}"]`);
+    if (dirty) dirty.value = 'true';
+    const hdr = document.getElementById(WIDE_HEADER_ID);
+    if (hdr) hdr.classList.add('pw-busy');
+    runInlineInPage(`PostBack('${target.replace(/'/g, "\\'")}')`);
+    const doc = document;
+    setTimeout(() => {
+      // Still here: Agresso's PostBack did not navigate. Submit directly.
+      if (doc !== document || !doc.defaultView) return;
+      const form = el.form;
+      const evTarget = form && form.querySelector('input[name="__EVENTTARGET"]');
+      if (!evTarget) return;
+      evTarget.value = target;
+      const evArg = form.querySelector('input[name="__EVENTARGUMENT"]');
+      if (evArg) evArg.value = '';
+      HTMLFormElement.prototype.submit.call(form);
+    }, 3000);
+  }
+
+  function wideStatusField() {
+    return Array.from(document.querySelectorAll('input.dlcEditor[name$="$Editor"]')).find((e) => {
+      const xml = e.closest('td') && e.closest('td').querySelector('xml');
+      return xml && /<descr>\s*(Utkast|Klar|Draft|Ready)\s*<\/descr>/i.test(xml.innerHTML);
+    }) || null;
+  }
+
+  function statusChoices(field) {
+    const xml = field && field.closest('td').querySelector('xml');
+    if (!xml) return [];
+    return Array.from(xml.querySelectorAll('item')).map((it) => ({
+      value: ((it.querySelector('value') || {}).textContent || '').trim(),
+      descr: ((it.querySelector('descr') || {}).textContent || '').trim()
+    })).filter((c) => c.value && c.descr);
+  }
+
+  function setStatus(field, choice) {
+    const rv = readEditorSiblingEl(field, 'RowValue');
+    const rd = readEditorSiblingEl(field, 'RowDescription');
+    field.value = choice.descr;
+    if (rv) rv.value = choice.value;
+    if (rd) rd.value = choice.descr;
+    const dirty = document.querySelector(`input[name="${field.name.replace(/\$Editor$/, '$IsDirty')}"]`);
+    if (dirty) dirty.value = 'true';
+    const call = ((field.getAttribute('onchange') || '').match(/setDirty\('[^']*'\)/) || [])[0];
+    if (call) runInlineInPage(call);
+  }
+
+  function readEditorSiblingEl(editor, suffix) {
+    const wanted = editor.name.replace(/\$Editor$/, '$' + suffix);
+    const scope = editor.closest('td') || editor.parentElement;
+    return Array.from(scope.querySelectorAll('input')).find((i) => i.name === wanted) || null;
+  }
+
+  function saveNowFromHeader() {
+    // Top-frame save path (the same one autosave uses), asked for by the
+    // user: route through the worker so it runs in the top frame.
+    try { chrome.runtime.sendMessage({ type: 'relay-save-now' }); } catch (e) { /* ignore */ }
+  }
+
+  function buildHeaderControls(hdr) {
+    const wrap = el('span', 'pw-nav');
+    const prev = el('button', 'pw-icon', '‹');
+    prev.type = 'button';
+    prev.title = 'Föregående vecka';
+    prev.setAttribute('aria-label', 'Föregående vecka');
+    const next = el('button', 'pw-icon', '›');
+    next.type = 'button';
+    next.title = 'Kommande vecka';
+    next.setAttribute('aria-label', 'Kommande vecka');
+    const pick = el('input', 'pw-date');
+    pick.type = 'date';
+    pick.setAttribute('aria-label', 'Datum i perioden');
+    const cur = parseFieldDate((wideDateField() || {}).value);
+    if (cur) pick.value = isoOf(cur);
+    const step = (days) => {
+      const d = parseFieldDate((wideDateField() || {}).value);
+      if (d) navigateToDate(new Date(d.getFullYear(), d.getMonth(), d.getDate() + days));
+    };
+    prev.addEventListener('click', () => step(-7));
+    next.addEventListener('click', () => step(7));
+    pick.addEventListener('change', () => {
+      const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(pick.value);
+      if (m) navigateToDate(new Date(+m[1], +m[2] - 1, +m[3]));
+    });
+    wrap.appendChild(prev);
+    wrap.appendChild(pick);
+    wrap.appendChild(next);
+    hdr.appendChild(wrap);
+
+    // A button group, not a <select>: Agresso's own script rewrites every
+    // <select> on the page into a `section.u4-select` widget, which came out
+    // 2188 px wide and pushed the rest of the header off-screen (seen live).
+    const sf = wideStatusField();
+    const choices = statusChoices(sf);
+    if (sf && choices.length) {
+      const seg = el('span', 'pw-seg');
+      seg.setAttribute('role', 'group');
+      seg.setAttribute('aria-label', 'Status');
+      const curV = (readEditorSiblingEl(sf, 'RowValue') || {}).value || '';
+      const locked = sf.disabled || sf.readOnly;
+      const confirmBtn = el('button', 'pw-confirm', '');
+      confirmBtn.type = 'button';
+      confirmBtn.hidden = true;
+      const buttons = choices.map((c) => {
+        const b = el('button', '', c.descr);
+        b.type = 'button';
+        b.disabled = locked;
+        b.setAttribute('aria-pressed', c.value === curV ? 'true' : 'false');
+        b.addEventListener('click', () => {
+          if (b.getAttribute('aria-pressed') === 'true') { confirmBtn.hidden = true; return; }
+          if (/^(klar|ready)$/i.test(c.descr)) {
+            // Arm only — see the note above.
+            confirmBtn.textContent = `Spara som ${c.descr}`;
+            confirmBtn.hidden = false;
+            confirmBtn.onclick = () => {
+              setStatus(sf, c);
+              buttons.forEach((x) => x.setAttribute('aria-pressed', x === b ? 'true' : 'false'));
+              confirmBtn.hidden = true;
+              saveNowFromHeader();
+            };
+          } else {
+            confirmBtn.hidden = true;
+            setStatus(sf, c);
+            buttons.forEach((x) => x.setAttribute('aria-pressed', x === b ? 'true' : 'false'));
+          }
+        });
+        seg.appendChild(b);
+        return b;
+      });
+      hdr.appendChild(seg);
+      hdr.appendChild(confirmBtn);
+    }
   }
 
   // Hide the stray hidden-column editor cells that the CSS hide sheet can't
@@ -2479,10 +4716,18 @@
     try { positionIndicatorNearSaveButton(); } catch (e) {}
     try { addProjectLabels(); } catch (e) {}
     try { applyFaktVardeSum(); } catch (e) {}
+    // The widescreen column first, so the panels below are created in it.
+    try { applyWideLayout(); } catch (e) {}
     try { scheduleDelprojSummary(); } catch (e) {}
     try { scheduleSemesterSummary(); } catch (e) {}
     try { applyArbetstimmarDefaultCollapse(); } catch (e) {}
     try { applyDayDoneMarkers(); } catch (e) {}
+    try { applyAdjustedRowMarkers(); } catch (e) {}
+    try { applyDelprojColumnFit(); } catch (e) {}
+    try { renderLibraryPanel(false); } catch (e) {}
+    try { if (settings.delproj_library_enabled === true) applyPendingLibraryNewRow(); } catch (e) {}
+    try { applyWideLayout(); } catch (e) {}
+    try { scheduleDelprojLibrary(); } catch (e) {}
     try { installEditRowWidthLock(); } catch (e) {}
     try { installLookupValidation(); } catch (e) {}
     try { applyLookupValidation(); } catch (e) {}
@@ -2516,6 +4761,24 @@
   const STAY_SIGNED_IN_LABELS = ['förbli inloggad', 'håll mig inloggad', 'stanna inloggad', 'fortsätt vara inloggad', 'stay signed in', 'keep me signed in', 'remain signed in', 'stay logged in'];
   const CLOSE_SELECTORS = ['[aria-label="Close"]', '.close', '.k-i-close', '.modal-close'];
   const ACTIVITY_MESSAGE = 'agresso-autosave-activity';
+  const EDIT_MESSAGE = 'agresso-autosave-edit';
+  // Set when a user edit has dismissed the current "no changes" banner, so
+  // it no longer pauses autosave; cleared by the next save.
+  let noChangesSuppressed = false;
+
+  function resumeFromAutoPause(reason) {
+    try {
+      if (!getToggleEnabled()) return;
+      const doc = getIndicatorDocument();
+      const ind = doc && doc.getElementById && doc.getElementById(INDICATOR_ID);
+      if (!ind || !ind.classList.contains('agresso-paused')) return;
+      noChangesSuppressed = true;
+      noChangesBannerVisible = false;
+      console.info(LOG_PREFIX, 'Auto-pause ended by an edit', { reason });
+      setIndicator('pending', 'Autosave ready', 'Unsaved changes');
+      startTimer(IDLE_TIMEOUT_MS, 'edit');
+    } catch (e) { /* ignore */ }
+  }
 
   // Storage helpers. Settings live in chrome.storage.local (see loadSettings).
   // The small in-memory `settings` object is mirrored from storage and kept in
@@ -2880,6 +5143,146 @@
     }
   }
 
+  // Widescreen: the save timer is drawn as the indicator's rounded OUTLINE
+  // filling up clockwise, instead of a bar under the text. The countdown
+  // logic is untouched: the existing .agresso-autosave-timer bar keeps
+  // being driven (now invisible) and its width is mirrored onto the ring.
+  // Paused or disabled, the ring is full.
+  const RING_ID = 'pragresso-autosave-ring';
+  let ringObserver = null;
+  function ensureAutosaveRing(indicator) {
+    const doc = indicator.ownerDocument;
+    let svg = doc.getElementById(RING_ID);
+    if (!svg) {
+      const NS = 'http://www.w3.org/2000/svg';
+      svg = doc.createElementNS(NS, 'svg');
+      svg.id = RING_ID;
+      svg.setAttribute('aria-hidden', 'true');
+      for (const c of ['pw-ring-track', 'pw-ring-bar']) {
+        const r = doc.createElementNS(NS, 'rect');
+        r.setAttribute('class', c);
+        svg.appendChild(r);
+      }
+      indicator.appendChild(svg);
+    }
+    syncAutosaveRing(indicator);
+    if (!ringObserver) {
+      try {
+        ringObserver = new MutationObserver(() => syncAutosaveRing(indicator));
+        ringObserver.observe(indicator, { attributes: true, subtree: true, attributeFilter: ['style', 'class'] });
+      } catch (e) { /* ignore */ }
+    }
+  }
+  // While counting down, follow the transition frame by frame.
+  let ringFrameQueued = false;
+  function scheduleRingFrame(indicator) {
+    if (ringFrameQueued) return;
+    ringFrameQueued = true;
+    const win = indicator.ownerDocument.defaultView || window;
+    win.requestAnimationFrame(() => {
+      ringFrameQueued = false;
+      syncAutosaveRing(indicator);
+    });
+  }
+
+  function removeAutosaveRing(indicator) {
+    const svg = indicator.ownerDocument.getElementById(RING_ID);
+    if (svg) svg.remove();
+    if (ringObserver) { ringObserver.disconnect(); ringObserver = null; }
+  }
+  function syncAutosaveRing(indicator) {
+    try {
+      const svg = indicator.ownerDocument.getElementById(RING_ID);
+      if (!svg) return;
+      const W = indicator.clientWidth;
+      const H = indicator.clientHeight;
+      if (!W || !H) return;
+      const geo = `${W}x${H}`;
+      const bar = svg.querySelector('.pw-ring-bar');
+      if (svg.dataset.geo !== geo) {
+        svg.dataset.geo = geo;
+        for (const r of svg.querySelectorAll('rect')) {
+          r.setAttribute('x', '1.25');
+          r.setAttribute('y', '1.25');
+          r.setAttribute('width', String(W - 2.5));
+          r.setAttribute('height', String(H - 2.5));
+          r.setAttribute('rx', String((H - 2.5) / 2));
+        }
+        svg.dataset.len = String(bar.getTotalLength());
+      }
+      const len = parseFloat(svg.dataset.len) || 0;
+      // Full ring whenever autosave is not counting down, in two colours:
+      // switched off by the user (agresso-disabled) vs paused by itself
+      // because there is nothing to save (agresso-paused while enabled).
+      const cls = indicator.className;
+      const state = /\bagresso-disabled\b/.test(cls) ? 'manual' : /\bagresso-paused\b/.test(cls) ? 'auto' : 'run';
+      if (svg.dataset.state !== state) svg.dataset.state = state;
+      let f = 1;
+      if (state === 'run') {
+        // The bar animates by a CSS transition (0px → full width) and its
+        // inline width is set straight to the END value, so it must be read
+        // as rendered. Reading style.width (the first build) pinned the ring
+        // at 100% and hid the countdown entirely.
+        const t = indicator.querySelector('.agresso-autosave-timer');
+        const full = (t && t.parentElement && t.parentElement.clientWidth) || W;
+        f = t ? t.getBoundingClientRect().width / full : 1;
+        if (!Number.isFinite(f)) f = 1;
+        if (f < 0.999) scheduleRingFrame(indicator);
+      }
+      const off = `${len * (1 - Math.max(0, Math.min(1, f)))}`;
+      if (bar.style.strokeDasharray !== `${len}`) bar.style.strokeDasharray = `${len}`;
+      if (bar.style.strokeDashoffset !== off) bar.style.strokeDashoffset = off;
+    } catch (e) { /* ignore */ }
+  }
+
+  // Where the indicator goes inside the widescreen bottom toolbar, in the
+  // indicator's own (top) viewport, or null when the toolbar is not shown.
+  let lastToolbarSlot = null;
+  function wideToolbarSlot(indicator) {
+    if (wideMode() === 'off') { lastToolbarSlot = null; return null; }
+    for (const doc of getAllDocuments()) {
+      const tb = doc && doc.querySelector && doc.querySelector('.ToolBarContainer');
+      if (!tb || !doc.querySelector('th[data-fieldname="work_order"]')) continue;
+      // Only trust the toolbar once our layout has it in its final shape.
+      // Seen in a screen recording: right after Spara, the postback's new
+      // grid document showed the toolbar briefly unstyled and narrow, the
+      // slot was computed from that, and the indicator (with its ring)
+      // jumped to the far left of the page. Mid-render, keep the last slot.
+      if (!doc.querySelector('.pragresso-wide-host') || doc.readyState === 'loading') return lastToolbarSlot;
+      const r = tb.getBoundingClientRect();
+      const fw = (doc.defaultView && doc.defaultView.innerWidth) || 0;
+      if (!r.height || !r.width || (fw && r.width < fw * 0.6)) return lastToolbarSlot;
+      let x = 0;
+      let y = 0;
+      let f = doc.defaultView && doc.defaultView.frameElement;
+      try {
+        while (f) {
+          const fr = f.getBoundingClientRect();
+          x += fr.left;
+          y += fr.top;
+          f = f.ownerDocument.defaultView.frameElement;
+        }
+      } catch (e) { return null; }
+      const top = indicator.ownerDocument.defaultView;
+      const ih = indicator.getBoundingClientRect().height || 40;
+      // Sanity in the top window too: while a postback unloads the old grid
+      // document its frame can be resized or hidden, and the recording
+      // showed the slot land at x = -392. The toolbar's right edge must sit
+      // in the right part of the window, else keep the last slot.
+      const rightEdge = x + r.right;
+      if (rightEdge < top.innerWidth * 0.6 || rightEdge > top.innerWidth + 1 || x + r.left < -1) return lastToolbarSlot;
+      lastToolbarSlot = {
+        right: `${Math.round(top.innerWidth - (x + r.right) + 12)}px`,
+        bottom: `${Math.round(top.innerHeight - (y + r.bottom) + (r.height - ih) / 2)}px`
+      };
+      return lastToolbarSlot;
+    }
+    // No grid document found right now — a postback between unload and the
+    // new render. Keep the last slot rather than flicking to the corner
+    // (seen as the ring vanishing for a tenth of a second on every save).
+    return lastToolbarSlot;
+  }
+
   function positionIndicatorNearSaveButton() {
     // The indicator used to be anchored to the save-button's vertical/
     // horizontal position, which caused visible jitter every time the user
@@ -2891,6 +5294,22 @@
     try {
       const indicator = ensureIndicator();
       if (!indicator) return;
+      // Widescreen A / B: sit inside Agresso's bottom toolbar, at its right
+      // end, when that toolbar is on screen. Anchored to the toolbar (a
+      // fixed element that does not move between renders), not to the save
+      // button, so it does not jitter; anywhere else the CSS corner holds.
+      const slot = wideToolbarSlot(indicator);
+      if (slot) {
+        indicator.classList.add('pw-in-toolbar');
+        ensureAutosaveRing(indicator);
+        indicator.style.setProperty('right', slot.right, 'important');
+        indicator.style.setProperty('bottom', slot.bottom, 'important');
+        indicator.style.setProperty('top', 'auto', 'important');
+        indicator.style.setProperty('left', 'auto', 'important');
+        return;
+      }
+      indicator.classList.remove('pw-in-toolbar');
+      removeAutosaveRing(indicator);
       indicator.style.removeProperty('top');
       indicator.style.removeProperty('bottom');
       indicator.style.removeProperty('left');
@@ -3789,7 +6208,7 @@
   }
 
   function refreshNoChangesBannerState(reason) {
-    const visible = isNoChangesBannerVisible();
+    const visible = isNoChangesBannerVisible() && !noChangesSuppressed;
     if (visible === noChangesBannerVisible) {
       return;
     }
@@ -3925,6 +6344,14 @@
     } catch (e) {
       // ignore
     }
+    // An AI agent is mid-way through filling a row over MCP: never save a
+    // half-built row behind its back. Retry once it is done.
+    try {
+      if (mcpRowBusy) {
+        startTimer(5000, 'mcp');
+        return;
+      }
+    } catch (e) { /* ignore */ }
     // Only save when we've actually detected the timesheet grid — every
     // other Agresso page has different save semantics or no save button.
     try {
@@ -3956,6 +6383,8 @@
       }
     } catch (e) {}
 
+    // This save's answer may be a fresh "no changes": let it pause again.
+    noChangesSuppressed = false;
     console.info(LOG_PREFIX, 'Saving via shortcut', { trigger, shortcut: SHORTCUT_LABEL });
     setIndicator('saving', 'Saving…', `Using ${SHORTCUT_LABEL}`);
     triggerShortcutSave();
@@ -6440,6 +8869,21 @@
 
     row.dataset.agressoDirty = '1';
     pendingRow = row;
+    // A real edit ends an AUTO-pause: autosave pauses itself after a save
+    // that Agresso answers with "Inga ändringar gjorda", and stayed paused
+    // until Agresso dropped that message — seen live ~25 s, during which
+    // markActivity ignored every edit (it bails while the indicator is
+    // paused). Reported as "autosave no longer notices edits". A manual
+    // pause (the toggle) is left alone; resumeFromAutoPause checks that.
+    if (event.isTrusted) {
+      try {
+        if (window.top && window.top !== window) {
+          window.top.postMessage({ type: EDIT_MESSAGE, ts: Date.now() }, window.location.origin);
+        } else {
+          resumeFromAutoPause('edit');
+        }
+      } catch (e) { /* ignore */ }
+    }
     markActivity();
 
     // Live-update the Fakt. värde footer total and the Delproj summary as
@@ -6709,6 +9153,13 @@
 
     // Top-level frame: full behavior
     setIndicator('saved', 'Autosave ready', 'Watching for edits');
+    // Widescreen A / B: keep the indicator in the bottom toolbar. The grid
+    // lives in a frame whose postbacks this frame does not observe, so the
+    // slot is re-checked on a slow tick and on resize (cheap: one rect).
+    try {
+      setInterval(() => { try { positionIndicatorNearSaveButton(); } catch (e) { /* ignore */ } }, 1500);
+      window.addEventListener('resize', () => { try { positionIndicatorNearSaveButton(); } catch (e) { /* ignore */ } });
+    } catch (e) { /* ignore */ }
     // Check whether today is the last day in the currently shown period and notify once
     try { checkPeriodAndNotify('init'); } catch (e) { /* ignore */ }
     
@@ -6867,6 +9318,12 @@
     try { applyStickyEditValues(); } catch (e) {}
     try { applyLookupValidation(); } catch (e) {}
     try { applyDayDoneMarkers(); } catch (e) {}
+    try { applyAdjustedRowMarkers(); } catch (e) {}
+    try { applyDelprojColumnFit(); } catch (e) {}
+    try { renderLibraryPanel(false); } catch (e) {}
+    try { if (settings.delproj_library_enabled === true) applyPendingLibraryNewRow(); } catch (e) {}
+    try { applyWideLayout(); } catch (e) {}
+    try { scheduleDelprojLibrary(); } catch (e) {}
     // If the user just enabled "Minimize Arbetstimmar by default", honour
     // it on the next render pass. We don't collapse retroactively here —
     // the one-shot flag prevents that — but turning it on then opening a
@@ -6940,7 +9397,17 @@
     if (chrome?.runtime?.onMessage) {
       chrome.runtime.onMessage.addListener((msg) => {
         if (!msg || typeof msg !== 'object') return;
-        if (msg.type === 'toggle-autosave') {
+        if (msg.type === 'save-now') {
+          // The user pressed a save in our header. Same path and cooldown
+          // as autosave, but not gated on the autosave toggle.
+          try {
+            if (window.top === window && onTimesheetPage) {
+              const since = Date.now() - lastSaveAt;
+              const go = () => { triggerShortcutSave(); lastSaveAt = Date.now(); startDialogSweep('header save'); };
+              if (lastSaveAt && since < SAVE_COOLDOWN_MS) setTimeout(go, SAVE_COOLDOWN_MS - since); else go();
+            }
+          } catch (e) { /* ignore */ }
+        } else if (msg.type === 'toggle-autosave') {
           try { setToggleEnabled(!getToggleEnabled()); } catch (e) {}
         } else if (msg.type === 'activity-broadcast') {
           try { markActivity(); } catch (e) {}
@@ -6993,6 +9460,10 @@
           // countdown open indefinitely (ACTIVITY_MESSAGE) or paint the red
           // period-end UI (agresso_period_enforce).
           if (!ev || ev.origin !== window.location.origin) return;
+          if (ev.data && ev.data.type === EDIT_MESSAGE) {
+            resumeFromAutoPause('edit in frame');
+            return;
+          }
           if (ev.data && ev.data.type === ACTIVITY_MESSAGE) {
             // Mark activity in the top frame
             onActivityEvent();

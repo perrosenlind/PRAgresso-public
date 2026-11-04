@@ -523,7 +523,7 @@ html.agresso-dark-mode .k-grid tr:hover {
  * inverted by the page-wide filter. We pick light tokens so the
  * inversion lands on a dark surface that fits the rest of the dark UI.
  * ───────────────────────────────────────────────────────────────────── */
-#pragresso-delproj-summary {
+:is(#pragresso-delproj-summary, #pragresso-library-panel) {
     box-sizing: border-box;
     display: block;
     width: 100%;
@@ -536,14 +536,14 @@ html.agresso-dark-mode .k-grid tr:hover {
     color: #1d1f22;
 }
 
-#pragresso-delproj-summary .pragresso-delproj-header {
+:is(#pragresso-delproj-summary, #pragresso-library-panel) .pragresso-delproj-header {
     display: flex;
     align-items: center;
     gap: 8px;
     margin-bottom: 6px;
 }
 
-#pragresso-delproj-summary .pragresso-delproj-toggle {
+:is(#pragresso-delproj-summary, #pragresso-library-panel) .pragresso-delproj-toggle {
     appearance: none;
     background: transparent;
     border: 1px solid transparent;
@@ -562,7 +562,7 @@ html.agresso-dark-mode .k-grid tr:hover {
     flex-shrink: 0;
 }
 
-#pragresso-delproj-summary .pragresso-delproj-toggle:hover {
+:is(#pragresso-delproj-summary, #pragresso-library-panel) .pragresso-delproj-toggle:hover {
     background: rgba(0, 0, 0, 0.06);
     border-color: rgba(0, 0, 0, 0.12);
 }
@@ -571,7 +571,7 @@ html.agresso-dark-mode .k-grid tr:hover {
    character `«` renders as two stacked left-chevrons — we rotate it via
    CSS so "expanded" points up (click to collapse) and "collapsed" points
    down (click to expand). */
-#pragresso-delproj-summary .pragresso-delproj-toggle::before {
+:is(#pragresso-delproj-summary, #pragresso-library-panel) .pragresso-delproj-toggle::before {
     content: '\00AB';
     display: inline-block;
     font-size: 20px;
@@ -581,11 +581,11 @@ html.agresso-dark-mode .k-grid tr:hover {
     transition: transform 120ms ease;
 }
 
-#pragresso-delproj-summary.collapsed .pragresso-delproj-toggle::before {
+:is(#pragresso-delproj-summary, #pragresso-library-panel).collapsed .pragresso-delproj-toggle::before {
     transform: rotate(-90deg);
 }
 
-#pragresso-delproj-summary .pragresso-delproj-title {
+:is(#pragresso-delproj-summary, #pragresso-library-panel) .pragresso-delproj-title {
     font-weight: 600;
     flex: 1;
     text-transform: uppercase;
@@ -594,33 +594,33 @@ html.agresso-dark-mode .k-grid tr:hover {
     color: #5b6470;
 }
 
-#pragresso-delproj-summary .pragresso-delproj-total {
+:is(#pragresso-delproj-summary, #pragresso-library-panel) .pragresso-delproj-total {
     font-variant-numeric: tabular-nums;
     font-weight: 600;
 }
 
-#pragresso-delproj-summary.collapsed .pragresso-delproj-body {
+:is(#pragresso-delproj-summary, #pragresso-library-panel).collapsed .pragresso-delproj-body {
     display: none;
 }
 
-#pragresso-delproj-summary .pragresso-delproj-table {
+:is(#pragresso-delproj-summary, #pragresso-library-panel) .pragresso-delproj-table {
     width: 100%;
     border-collapse: collapse;
 }
 
-#pragresso-delproj-summary .pragresso-delproj-table th,
-#pragresso-delproj-summary .pragresso-delproj-table td {
+:is(#pragresso-delproj-summary, #pragresso-library-panel) .pragresso-delproj-table th,
+:is(#pragresso-delproj-summary, #pragresso-library-panel) .pragresso-delproj-table td {
     padding: 3px 6px;
     border-bottom: 1px solid #e7e9ed;
     vertical-align: top;
     text-align: left;
 }
 
-#pragresso-delproj-summary .pragresso-delproj-table tr:last-child td {
+:is(#pragresso-delproj-summary, #pragresso-library-panel) .pragresso-delproj-table tr:last-child td {
     border-bottom: 0;
 }
 
-#pragresso-delproj-summary .pragresso-delproj-table th {
+:is(#pragresso-delproj-summary, #pragresso-library-panel) .pragresso-delproj-table th {
     font-weight: 600;
     color: #5b6470;
     font-size: 11px;
@@ -628,23 +628,23 @@ html.agresso-dark-mode .k-grid tr:hover {
     letter-spacing: 0.03em;
 }
 
-#pragresso-delproj-summary .pragresso-delproj-table th.num,
-#pragresso-delproj-summary .pragresso-delproj-table td.num {
+:is(#pragresso-delproj-summary, #pragresso-library-panel) .pragresso-delproj-table th.num,
+:is(#pragresso-delproj-summary, #pragresso-library-panel) .pragresso-delproj-table td.num {
     text-align: right;
     font-variant-numeric: tabular-nums;
 }
 
-#pragresso-delproj-summary .pragresso-delproj-table .small {
+:is(#pragresso-delproj-summary, #pragresso-library-panel) .pragresso-delproj-table .small {
     font-size: 11px;
     color: #6b7280;
 }
 
-#pragresso-delproj-summary .pragresso-delproj-code {
+:is(#pragresso-delproj-summary, #pragresso-library-panel) .pragresso-delproj-code {
     display: block;
     font-variant-numeric: tabular-nums;
 }
 
-#pragresso-delproj-summary .pragresso-delproj-name {
+:is(#pragresso-delproj-summary, #pragresso-library-panel) .pragresso-delproj-name {
     display: block;
     font-size: 11px;
     color: #6b7280;
@@ -654,13 +654,13 @@ html.agresso-dark-mode .k-grid tr:hover {
     max-width: 240px;
 }
 
-#pragresso-delproj-summary .pragresso-delproj-empty td {
+:is(#pragresso-delproj-summary, #pragresso-library-panel) .pragresso-delproj-empty td {
     color: #6b7280;
     font-style: italic;
     text-align: center;
 }
 
-#pragresso-delproj-summary .pragresso-delproj-table tfoot tr.pragresso-delproj-total-row td {
+:is(#pragresso-delproj-summary, #pragresso-library-panel) .pragresso-delproj-table tfoot tr.pragresso-delproj-total-row td {
     font-weight: 700;
     border-top: 2px solid #cfd3da;
     border-bottom: 0;
@@ -668,7 +668,7 @@ html.agresso-dark-mode .k-grid tr:hover {
     background: rgba(0, 0, 0, 0.025);
 }
 
-#pragresso-delproj-summary .pragresso-delproj-table tfoot tr.pragresso-delproj-total-row td.code {
+:is(#pragresso-delproj-summary, #pragresso-library-panel) .pragresso-delproj-table tfoot tr.pragresso-delproj-total-row td.code {
     text-transform: uppercase;
     letter-spacing: 0.03em;
     font-size: 11px;
@@ -676,12 +676,69 @@ html.agresso-dark-mode .k-grid tr:hover {
 }
 
 /* Advania theme: tint the panel with the brand indigo border + pink accent. */
-html[data-agresso-theme="advania"] #pragresso-delproj-summary {
+html[data-agresso-theme="advania"] :is(#pragresso-delproj-summary, #pragresso-library-panel) {
     border-color: #4f0077;
 }
-html[data-agresso-theme="advania"] #pragresso-delproj-summary .pragresso-delproj-total {
+html[data-agresso-theme="advania"] :is(#pragresso-delproj-summary, #pragresso-library-panel) .pragresso-delproj-total {
     color: #cc0085;
 }
+
+/* Delproj library panel — reuses the summary panel's look above. */
+#pragresso-library-panel .pragresso-lib-tools {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    align-items: center;
+    margin: 2px 0 8px;
+}
+#pragresso-library-panel .pragresso-lib-tools input,
+#pragresso-library-panel .pragresso-lib-tools select,
+#pragresso-library-panel .pragresso-lib-tools button {
+    font: inherit;
+    color: inherit;
+    background: #fff;
+    border: 1px solid #cfd3da;
+    border-radius: 4px;
+    padding: 2px 6px;
+}
+#pragresso-library-panel .pragresso-lib-tools input[type="search"] { min-width: 180px; flex: 1; }
+#pragresso-library-panel .pragresso-lib-tools input[type="number"] { width: 4em; }
+#pragresso-library-panel .pragresso-lib-tools button { cursor: pointer; }
+#pragresso-library-panel .pragresso-lib-tools button:disabled { opacity: 0.5; cursor: default; }
+#pragresso-library-panel .pragresso-lib-sep { flex-basis: 12px; }
+#pragresso-library-panel .pragresso-lib-status { color: #6b7280; }
+#pragresso-library-panel .pragresso-lib-scroll { max-height: 220px; overflow: auto; }
+#pragresso-library-panel tbody tr[data-code] { cursor: pointer; }
+#pragresso-library-panel tbody tr[data-code]:hover td { background: rgba(37, 99, 235, 0.08); }
+#pragresso-library-panel .pragresso-lib-del {
+    border: 0;
+    background: transparent;
+    color: #9aa0a6;
+    cursor: pointer;
+    padding: 0 4px;
+}
+#pragresso-library-panel .pragresso-lib-del:hover { color: #b02a2a; }
+#pragresso-library-panel .pragresso-lib-newrow {
+    font: inherit;
+    font-size: 11px;
+    color: #2563eb;
+    background: transparent;
+    border: 1px solid currentColor;
+    border-radius: 4px;
+    padding: 0 6px;
+    cursor: pointer;
+    white-space: nowrap;
+}
+html[data-agresso-theme="advania"] #pragresso-library-panel .pragresso-lib-newrow { color: #cc0085; }
+#pragresso-library-panel .pragresso-lib-meta {
+    display: none;
+    margin-left: 6px;
+    font-size: 10px;
+    color: #6b7280;
+}
+#pragresso-library-panel .pragresso-lib-manual { color: #2563eb; font-size: 10px; margin-left: 4px; }
+html[data-agresso-theme="advania"] #pragresso-library-panel .pragresso-lib-manual { color: #cc0085; }
+html[data-agresso-theme="advania"] #pragresso-library-panel tbody tr[data-code]:hover td { background: rgba(204, 0, 133, 0.08); }
 
 /* ─────────────────────────────────────────────────────────────────────
  * Semester (vacation-day) summary panel — injected under the "Saldo för
@@ -872,3 +929,606 @@ tr.EditRow input[data-pragresso-sticky="1"][data-pragresso-badvalue="1"] {
  * kept here: from this file they lose a cascade tie to Agresso's own
  * sum-cell background. See ensureDayDoneStyle.
  */
+
+/* ── Widescreen layout: first-paint reservation ─────────────────────────
+ * early.js marks <html> with the chosen layout at document_start; these
+ * rules make Agresso's TabContainer two-column from the first frame, with
+ * Tidtransaktion's block in its column, so the grid never paints full width
+ * and then narrows. cells.js fills the empty column with its aside and adds
+ * the rest of the styling (WIDE_CSS). Requires :has() (Chrome 105+).
+ */
+html[data-pragresso-wide-pref] .TabContainer:has(th[data-fieldname="work_order"]) {
+    display: grid !important;
+    column-gap: 12px;
+    align-items: start;
+}
+html[data-pragresso-wide-pref="right"] .TabContainer:has(th[data-fieldname="work_order"]) {
+    grid-template-columns: minmax(0, 1fr) clamp(340px, 22%, 460px);
+}
+html[data-pragresso-wide-pref="rail"] .TabContainer:has(th[data-fieldname="work_order"]) {
+    grid-template-columns: clamp(280px, 16%, 340px) minmax(0, 1fr);
+}
+html[data-pragresso-wide-pref="right"] #pragresso-wide-aside { margin-top: 10px; }
+html[data-pragresso-wide-pref] .TabContainer:has(th[data-fieldname="work_order"]) > * {
+    grid-column: 1 / -1;
+    min-width: 0;
+}
+html[data-pragresso-wide-pref="right"] .TabContainer:has(th[data-fieldname="work_order"]) > :has(th[data-fieldname="work_order"]) {
+    grid-column: 1;
+}
+html[data-pragresso-wide-pref="rail"] .TabContainer:has(th[data-fieldname="work_order"]) > :has(th[data-fieldname="work_order"]) {
+    grid-column: 2;
+}
+html[data-pragresso-wide-pref="right"][data-pragresso-wide-folded] .TabContainer:has(th[data-fieldname="work_order"]) {
+    grid-template-columns: minmax(0, 1fr) 44px;
+}
+html[data-pragresso-wide-pref="rail"][data-pragresso-wide-folded] .TabContainer:has(th[data-fieldname="work_order"]) {
+    grid-template-columns: 44px minmax(0, 1fr);
+}
+
+/* ── Delproj panels: the mockup's look ─────────────────────────────────
+ * Layout for every theme; colours as variables. Under the page-wide dark
+ * theme (dark and Advania), Agresso is shown through invert(0.92) +
+ * hue-rotate(180deg), which keeps hue and maps lightness L to about
+ * 0.92 − 0.84·L. So the values below are PRE-inverted: #e5e5e5 lands on
+ * the mockup's #2a2a2a surface, #000 on its #edeef0 text, #a10063 on its
+ * pink #f472b6, #ff55bd on the filled #cc0085, #e0b3ff on the indigo
+ * #4f0077 border.
+ */
+:is(#pragresso-delproj-summary, #pragresso-library-panel) {
+    --p-bg: #ffffff;
+    --p-fg: #1d1f22;
+    --p-muted: #5b6470;
+    --p-border: #d7dbe1;
+    --p-sep: #e7e9ed;
+    --p-input: #ffffff;
+    --p-input-border: #c9ced6;
+    --p-accent: #2563eb;
+    --p-accent-fill: #2563eb;
+    --p-accent-ink: #ffffff;
+    --p-hover: rgba(37, 99, 235, 0.06);
+    background: var(--p-bg) !important;
+    color: var(--p-fg) !important;
+    border: 1px solid var(--p-border) !important;
+    border-radius: 8px !important;
+    padding: 12px 14px !important;
+    font: 13px/1.45 "Segoe UI", system-ui, -apple-system, sans-serif !important;
+}
+html.agresso-dark-page :is(#pragresso-delproj-summary, #pragresso-library-panel) {
+    --p-bg: #e5e5e5;
+    --p-fg: #000000;
+    --p-muted: #404040;
+    --p-border: #d2d2d2;
+    --p-sep: #d8d8d8;
+    --p-input: #f2f2f2;
+    --p-input-border: #c4c4c4;
+    --p-accent: #1d56c9;
+    --p-accent-fill: #7ea6f0;
+    --p-accent-ink: #000000;
+    --p-hover: rgba(0, 0, 0, 0.05);
+}
+html[data-agresso-theme="advania"] :is(#pragresso-delproj-summary, #pragresso-library-panel) {
+    --p-border: #e0b3ff;
+    --p-accent: #a10063;
+    --p-accent-fill: #ff55bd;
+}
+:is(#pragresso-delproj-summary, #pragresso-library-panel) .pragresso-delproj-header { margin-bottom: 10px; }
+:is(#pragresso-delproj-summary, #pragresso-library-panel).collapsed .pragresso-delproj-header { margin-bottom: 0; }
+:is(#pragresso-delproj-summary, #pragresso-library-panel) .pragresso-delproj-title {
+    font-size: 12px;
+    letter-spacing: 0.06em;
+    color: var(--p-fg);
+}
+:is(#pragresso-delproj-summary, #pragresso-library-panel) .pragresso-delproj-total { color: var(--p-accent) !important; }
+:is(#pragresso-delproj-summary, #pragresso-library-panel) .pragresso-delproj-table td,
+:is(#pragresso-delproj-summary, #pragresso-library-panel) .pragresso-delproj-table th {
+    border-bottom: 0 !important;
+    border-top: 1px solid var(--p-sep);
+    padding: 7px 6px;
+    vertical-align: middle;
+}
+:is(#pragresso-delproj-summary, #pragresso-library-panel) .pragresso-delproj-table thead th { border-top: 0; color: var(--p-muted); }
+:is(#pragresso-delproj-summary, #pragresso-library-panel) .pragresso-delproj-code { font-weight: 600; display: inline; }
+:is(#pragresso-delproj-summary, #pragresso-library-panel) .pragresso-delproj-name { display: block; font-size: 11px; color: var(--p-muted); }
+:is(#pragresso-delproj-summary, #pragresso-library-panel) .small { color: var(--p-muted) !important; }
+
+#pragresso-library-panel .pragresso-lib-label { display: block; font-size: 12px; color: var(--p-muted); margin: 0 0 4px; }
+#pragresso-library-panel .pragresso-lib-tools { display: flex; gap: 8px; align-items: center; margin: 0 0 6px; }
+#pragresso-library-panel .pragresso-lib-tools input[type="search"],
+#pragresso-library-panel .pragresso-lib-import input,
+#pragresso-library-panel .pragresso-lib-import select.pw-unused {
+    min-height: 34px;
+    box-sizing: border-box;
+    background: var(--p-input) !important;
+    color: var(--p-fg) !important;
+    border: 1px solid var(--p-input-border) !important;
+    border-radius: 6px !important;
+    padding: 0 10px !important;
+    font: inherit !important;
+}
+#pragresso-library-panel .pragresso-lib-tools input[type="search"] { flex: 1 1 auto; min-width: 0; }
+#pragresso-library-panel .pragresso-lib-tools button,
+#pragresso-library-panel .pragresso-lib-import button {
+    min-height: 34px;
+    padding: 0 12px !important;
+    border-radius: 6px !important;
+    background: transparent !important;
+    color: var(--p-fg) !important;
+    border: 1px solid var(--p-input-border) !important;
+    font: inherit !important;
+    cursor: pointer;
+}
+#pragresso-library-panel .pragresso-lib-import button.pragresso-lib-primary {
+    background: var(--p-accent-fill) !important;
+    color: var(--p-accent-ink) !important;
+    border-color: transparent !important;
+    font-weight: 600 !important;
+    flex: 1 1 100%;
+}
+#pragresso-library-panel .pragresso-lib-status { min-height: 0; font-size: 12px; color: var(--p-muted); margin: 0 0 6px; }
+#pragresso-library-panel .pragresso-lib-status:empty { display: none; }
+#pragresso-library-panel tbody tr[data-code]:hover td { background: var(--p-hover) !important; }
+#pragresso-library-panel .pragresso-lib-meta { display: inline !important; margin-left: 6px; font-size: 11px; color: var(--p-muted); }
+#pragresso-library-panel .pragresso-lib-newrow {
+    min-height: 30px;
+    padding: 0 10px !important;
+    border-radius: 6px !important;
+    border: 1px solid var(--p-accent) !important;
+    color: var(--p-accent) !important;
+    background: transparent !important;
+    font-size: 12px !important;
+    white-space: nowrap;
+    cursor: pointer;
+}
+#pragresso-library-panel .pragresso-lib-del { color: var(--p-muted) !important; font-size: 13px; padding: 0 2px 0 8px !important; }
+#pragresso-library-panel .pragresso-lib-manual { color: var(--p-accent) !important; }
+#pragresso-library-panel .pragresso-lib-import { border-top: 1px solid var(--p-sep); margin-top: 8px; padding-top: 8px; color: var(--p-muted); }
+#pragresso-library-panel .pragresso-lib-import summary { cursor: pointer; font-size: 12px; }
+#pragresso-library-panel .pragresso-lib-import-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 8px; }
+#pragresso-library-panel .pragresso-lib-import-row label { display: flex; gap: 6px; align-items: center; }
+#pragresso-library-panel .pragresso-lib-import input[type="number"] { width: 64px; }
+
+/* ── Widescreen A / B: header, hidden sections, chips (first paint) ─────
+ * Space for PRAgresso's header is reserved at the top of the TabContainer
+ * and the header is absolutely positioned in it, so creating it moves
+ * nothing. Agresso's "Tidrapport för" (holds the date field) and
+ * "Arbetstimmar" (holds the Återstående sum row) are hidden until
+ * "Period & arbetstimmar ▾" opens them; their fields keep working.
+ */
+html[data-pragresso-wide-pref] .TabContainer:has(th[data-fieldname="work_order"]) {
+    position: relative;
+    padding-top: 60px !important;
+}
+html[data-pragresso-wide-pref]:not([data-pragresso-wide-details]) .TabContainer:has(th[data-fieldname="work_order"]) > :has(input[name$="$date_in_period$i"]),
+html[data-pragresso-wide-pref]:not([data-pragresso-wide-details]) .TabContainer:has(th[data-fieldname="work_order"]) > :has(td[id*="__sumRow_normal_hrs"]) {
+    display: none !important;
+}
+/* B: the chips sit at the top of Tidtransaktion's own block (a grid row
+   of their own made the tall rail stretch that row: a ~95 px gap). */
+html[data-pragresso-wide-pref="right"] #pragresso-wide-chips { display: none; }
+
+#pragresso-wide-header,
+#pragresso-wide-chips {
+    --p-bg: #ffffff; --p-fg: #1d1f22; --p-muted: #5b6470; --p-border: #d7dbe1;
+    --p-accent: #2563eb; --p-chip: #eef0f3; --p-accent-fill: #2563eb; --p-accent-ink: #ffffff;
+    font: 13px/1.45 "Segoe UI", system-ui, -apple-system, sans-serif;
+    color: var(--p-fg);
+}
+html.agresso-dark-page #pragresso-wide-header,
+html.agresso-dark-page #pragresso-wide-chips {
+    --p-bg: #e5e5e5; --p-fg: #000000; --p-muted: #404040; --p-border: #d2d2d2;
+    --p-accent: #1d56c9; --p-chip: #d2d2d2; --p-accent-fill: #7ea6f0; --p-accent-ink: #000000;
+}
+html[data-agresso-theme="advania"] #pragresso-wide-header,
+html[data-agresso-theme="advania"] #pragresso-wide-chips { --p-accent: #a10063; --p-accent-fill: #ff55bd; }
+#pragresso-wide-header {
+    position: absolute;
+    top: 6px; left: 0; right: 0;
+    height: 46px;
+    box-sizing: border-box;
+    display: flex;
+    align-items: center;
+    gap: 18px;
+    padding: 0 16px;
+    background: var(--p-bg);
+    border: 1px solid var(--p-border);
+    border-radius: 8px;
+    overflow: hidden;
+    white-space: nowrap;
+}
+#pragresso-wide-header .pw-title { font-size: 15px; }
+#pragresso-wide-header .pw-muted, #pragresso-wide-chips .pw-muted { color: var(--p-muted); font-size: 12px; }
+#pragresso-wide-header .pw-label { color: var(--p-muted); }
+#pragresso-wide-header .pw-accent, #pragresso-wide-chips .pw-accent { color: var(--p-accent); font-weight: 600; }
+#pragresso-wide-header .pw-chip { padding: 2px 10px; border-radius: 999px; background: var(--p-chip); }
+#pragresso-wide-header .pw-grow { flex: 1 1 auto; }
+#pragresso-wide-header .pw-details {
+    min-height: 32px; padding: 0 12px; border-radius: 6px; cursor: pointer;
+    background: transparent; color: var(--p-fg); border: 1px solid var(--p-border); font: inherit;
+}
+#pragresso-wide-chips { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 12px; }
+#pragresso-wide-chips:empty { display: none; }
+#pragresso-wide-chips .pw-chipcard {
+    display: flex; gap: 8px; align-items: baseline;
+    padding: 6px 12px; background: var(--p-bg); border: 1px solid var(--p-border); border-radius: 6px;
+}
+/* B rail filters (only shown in the rail). */
+#pragresso-library-panel .pragresso-lib-filters { display: none; gap: 6px; flex-wrap: wrap; margin: 0 0 8px; }
+html[data-pragresso-wide-pref="rail"] #pragresso-wide-aside #pragresso-library-panel .pragresso-lib-filters { display: flex; }
+#pragresso-library-panel .pragresso-lib-filters button {
+    min-height: 28px; padding: 0 12px; border-radius: 999px; cursor: pointer; font: inherit; font-size: 12px;
+    background: var(--p-sep); color: var(--p-fg); border: 0;
+}
+#pragresso-library-panel .pragresso-lib-filters button[aria-pressed="true"] { background: var(--p-accent-fill); color: var(--p-accent-ink); font-weight: 600; }
+
+/* Header controls (week navigation, date, status). */
+#pragresso-wide-header .pw-nav { display: inline-flex; align-items: center; gap: 4px; }
+#pragresso-wide-header .pw-icon,
+#pragresso-wide-header .pw-confirm {
+    min-width: 32px; min-height: 32px; padding: 0 8px; border-radius: 6px; cursor: pointer;
+    background: transparent; color: var(--p-fg); border: 1px solid var(--p-border); font: inherit; font-size: 16px; line-height: 1;
+}
+#pragresso-wide-header .pw-confirm { font-size: 13px; font-weight: 600; color: var(--p-accent); border-color: var(--p-accent); }
+#pragresso-wide-header .pw-date,
+#pragresso-wide-header .pw-status {
+    min-height: 32px; box-sizing: border-box; padding: 0 8px; border-radius: 6px;
+    background: transparent; color: var(--p-fg); border: 1px solid var(--p-border); font: inherit;
+    color-scheme: light;
+}
+/* Button groups (status in the header, weeks/months in the library). */
+:is(#pragresso-wide-header, #pragresso-library-panel) .pw-seg {
+    display: inline-flex; border: 1px solid var(--p-border); border-radius: 6px; overflow: hidden;
+}
+:is(#pragresso-wide-header, #pragresso-library-panel) .pw-seg button {
+    min-height: 30px !important; padding: 0 12px !important; margin: 0 !important;
+    border: 0 !important; border-radius: 0 !important;
+    background: transparent !important; color: var(--p-fg) !important; font: inherit !important; cursor: pointer;
+}
+:is(#pragresso-wide-header, #pragresso-library-panel) .pw-seg button + button { border-left: 1px solid var(--p-border) !important; }
+:is(#pragresso-wide-header, #pragresso-library-panel) .pw-seg button[aria-pressed="true"] {
+    background: var(--p-accent-fill) !important; color: var(--p-accent-ink) !important; font-weight: 600 !important;
+}
+:is(#pragresso-wide-header, #pragresso-library-panel) .pw-seg button:disabled { opacity: 0.5; cursor: default; }
+#pragresso-wide-header.pw-busy { opacity: 0.6; pointer-events: none; }
+
+/* ── Widescreen A / B: Tidtransaktion in the panels' look ───────────────
+ * Same surface, corners, type and separators as the Delproj panels, on
+ * Agresso's own grid. Only colours, borders, radius, type and VERTICAL
+ * padding change — never widths or horizontal padding, which Agresso's
+ * column sizing and our edit-row width lock depend on. Pre-inverted under
+ * the dark page, like the panels (see the note above their rules).
+ */
+html[data-pragresso-wide-pref] .TabContainer > :has(th[data-fieldname="work_order"]) {
+    --t-bg: #ffffff; --t-fg: #1d1f22; --t-muted: #5b6470; --t-border: #d7dbe1; --t-sep: #e7e9ed; --t-alt: #fafbfc; --t-hover: rgba(37, 99, 235, 0.05);
+}
+html.agresso-dark-page[data-pragresso-wide-pref] .TabContainer > :has(th[data-fieldname="work_order"]) {
+    --t-bg: #e5e5e5; --t-fg: #000000; --t-muted: #404040; --t-border: #d2d2d2; --t-sep: #d8d8d8; --t-alt: #e1e1e1; --t-hover: rgba(0, 0, 0, 0.04);
+}
+html[data-agresso-theme="advania"][data-pragresso-wide-pref] .TabContainer > :has(th[data-fieldname="work_order"]) { --t-border: #e0b3ff; }
+html[data-pragresso-wide-pref] .TabContainer > :has(th[data-fieldname="work_order"]) .u4-section-container .u4-section-container {
+    background: var(--t-bg) !important;
+    border: 1px solid var(--t-border) !important;
+    border-radius: 8px !important;
+    /* No overflow: hidden — it would clip Agresso's lookup pop-ups. */
+}
+html[data-pragresso-wide-pref] .TabContainer > :has(th[data-fieldname="work_order"]) .TopBlue {
+    background: transparent !important;
+    border: 0 !important;
+    border-bottom: 1px solid var(--t-sep) !important;
+}
+html[data-pragresso-wide-pref] .TabContainer > :has(th[data-fieldname="work_order"]) .SectionTitle {
+    font: 600 14px/1.4 "Segoe UI", system-ui, -apple-system, sans-serif !important;
+    color: var(--t-fg) !important;
+}
+html[data-pragresso-wide-pref] table.Excel:has(th[data-fieldname="work_order"]) {
+    font-family: "Segoe UI", system-ui, -apple-system, sans-serif !important;
+    font-size: 13px !important;
+    color: var(--t-fg) !important;
+    background: var(--t-bg) !important;
+    border-collapse: collapse !important;
+}
+html[data-pragresso-wide-pref] table.Excel:has(th[data-fieldname="work_order"]) > thead > tr > th {
+    background: var(--t-bg) !important;
+    color: var(--t-muted) !important;
+    font-weight: 500 !important;
+    font-size: 12px !important;
+    border: 0 !important;
+    border-bottom: 1px solid var(--t-sep) !important;
+    padding-top: 8px !important;
+    padding-bottom: 8px !important;
+}
+html[data-pragresso-wide-pref] table.Excel:has(th[data-fieldname="work_order"]) > tbody > tr:is(.ListItem, .AltListItem, .EditRow) > td {
+    background-color: var(--t-bg);
+    border-left: 0 !important;
+    border-right: 0 !important;
+    border-top: 0 !important;
+    border-bottom: 1px solid var(--t-sep) !important;
+    padding-top: 7px !important;
+    padding-bottom: 7px !important;
+}
+html[data-pragresso-wide-pref] table.Excel:has(th[data-fieldname="work_order"]) > tbody > tr.AltListItem > td { background-color: var(--t-alt); }
+html[data-pragresso-wide-pref] table.Excel:has(th[data-fieldname="work_order"]) > tbody > tr:is(.ListItem, .AltListItem):hover > td { background-image: linear-gradient(var(--t-hover), var(--t-hover)); }
+html[data-pragresso-wide-pref] table.Excel:has(th[data-fieldname="work_order"]) > tbody > tr.SumItem > td {
+    background-color: var(--t-bg);
+    border: 0 !important;
+    border-top: 1px solid var(--t-border) !important;
+    font-weight: 600 !important;
+    padding-top: 8px !important;
+    padding-bottom: 8px !important;
+}
+
+/* Tidtransaktion row controls in the panels' look (widescreen A / B):
+ * the select checkbox, the zoom key and the edit row's editors with their
+ * "…" field-help buttons. Heights may change; widths never do.
+ */
+html[data-pragresso-wide-pref] .TabContainer > :has(th[data-fieldname="work_order"]) {
+    --t-input: #ffffff; --t-input-border: #c9ced6; --t-accent: #2563eb; --t-accent-fill: #2563eb;
+    --t-check: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M3.5 8.5l3 3 6-6.5' fill='none' stroke='%23ffffff' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+}
+html.agresso-dark-page[data-pragresso-wide-pref] .TabContainer > :has(th[data-fieldname="work_order"]) {
+    --t-input: #f2f2f2; --t-input-border: #c4c4c4; --t-accent: #1d56c9; --t-accent-fill: #7ea6f0;
+    --t-check: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M3.5 8.5l3 3 6-6.5' fill='none' stroke='%23000000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+}
+html[data-agresso-theme="advania"][data-pragresso-wide-pref] .TabContainer > :has(th[data-fieldname="work_order"]) { --t-accent: #a10063; --t-accent-fill: #ff55bd; }
+
+/* Select checkbox (rows and header). */
+html[data-pragresso-wide-pref] table.Excel:has(th[data-fieldname="work_order"]) input[type="checkbox"] {
+    appearance: none !important;
+    -webkit-appearance: none !important;
+    width: 16px !important;
+    height: 16px !important;
+    margin: 0 !important;
+    vertical-align: middle;
+    border: 1.5px solid var(--t-muted) !important;
+    border-radius: 4px !important;
+    background: transparent center / 14px 14px no-repeat !important;
+    cursor: pointer;
+}
+html[data-pragresso-wide-pref] table.Excel:has(th[data-fieldname="work_order"]) input[type="checkbox"]:checked {
+    background-color: var(--t-accent-fill) !important;
+    background-image: var(--t-check) !important;
+    border-color: var(--t-accent-fill) !important;
+}
+html[data-pragresso-wide-pref] table.Excel:has(th[data-fieldname="work_order"]) input[type="checkbox"]:focus-visible {
+    outline: 2px solid var(--t-accent) !important;
+    outline-offset: 2px;
+}
+
+/* Zoom key: Agresso's sprite replaced by a clean magnifier (inline SVG),
+   muted, tinted with the accent on hover. */
+html[data-pragresso-wide-pref] table.Excel:has(th[data-fieldname="work_order"]) button.GridRowButton {
+    width: 28px !important;
+    height: 28px !important;
+    background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Ccircle cx='7' cy='7' r='4.5' fill='none' stroke='%235b6470' stroke-width='1.6'/%3E%3Cpath d='M10.4 10.4L14 14' stroke='%235b6470' stroke-width='1.8' stroke-linecap='round'/%3E%3C/svg%3E") center / 16px 16px no-repeat !important;
+    border: 0 !important;
+    border-radius: 6px !important;
+    box-shadow: none !important;
+    cursor: pointer;
+}
+html[data-pragresso-wide-pref] table.Excel:has(th[data-fieldname="work_order"]) button.GridRowButton > * { display: none !important; }
+html[data-pragresso-wide-pref] table.Excel:has(th[data-fieldname="work_order"]) button.GridRowButton:hover { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Ccircle cx='7' cy='7' r='4.5' fill='none' stroke='%232563eb' stroke-width='1.6'/%3E%3Cpath d='M10.4 10.4L14 14' stroke='%232563eb' stroke-width='1.8' stroke-linecap='round'/%3E%3C/svg%3E") !important; background-color: var(--t-hover) !important; }
+html.agresso-dark-page[data-pragresso-wide-pref] table.Excel:has(th[data-fieldname="work_order"]) button.GridRowButton { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Ccircle cx='7' cy='7' r='4.5' fill='none' stroke='%23404040' stroke-width='1.6'/%3E%3Cpath d='M10.4 10.4L14 14' stroke='%23404040' stroke-width='1.8' stroke-linecap='round'/%3E%3C/svg%3E") !important; }
+html.agresso-dark-page[data-pragresso-wide-pref] table.Excel:has(th[data-fieldname="work_order"]) button.GridRowButton:hover { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Ccircle cx='7' cy='7' r='4.5' fill='none' stroke='%231d56c9' stroke-width='1.6'/%3E%3Cpath d='M10.4 10.4L14 14' stroke='%231d56c9' stroke-width='1.8' stroke-linecap='round'/%3E%3C/svg%3E") !important; }
+html[data-agresso-theme="advania"][data-pragresso-wide-pref] table.Excel:has(th[data-fieldname="work_order"]) button.GridRowButton:hover { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Ccircle cx='7' cy='7' r='4.5' fill='none' stroke='%23a10063' stroke-width='1.6'/%3E%3Cpath d='M10.4 10.4L14 14' stroke='%23a10063' stroke-width='1.8' stroke-linecap='round'/%3E%3C/svg%3E") !important; }
+
+/* Edit row editors and their "…" buttons, joined into one field. */
+html[data-pragresso-wide-pref] table.Excel:has(th[data-fieldname="work_order"]) tr.EditRow :is(input.slcEditor, input.dlcEditor, input.Edit, textarea.Edit) {
+    background: var(--t-input) !important;
+    color: var(--t-fg) !important;
+    border: 1px solid var(--t-input-border) !important;
+    border-radius: 6px !important;
+    min-height: 28px;
+    box-sizing: border-box;
+    font: 13px "Segoe UI", system-ui, -apple-system, sans-serif !important;
+}
+/* Agresso's own inset shadow goes, but never PRAgresso's markers: the
+   sticky field's blue edge and the unknown-value red ring are shadows. */
+html[data-pragresso-wide-pref] table.Excel:has(th[data-fieldname="work_order"]) tr.EditRow :is(input.slcEditor, input.dlcEditor, input.Edit, textarea.Edit):not([data-pragresso-sticky="1"]):not([data-pragresso-badvalue="1"]) {
+    box-shadow: none !important;
+}
+/* The "…" field-help buttons keep Agresso's own size and position (an
+   attempt to tuck them inside the editor hid them, and with them the
+   lookup they open). They only take the editor's colours and corners, so
+   editor and button read as one field. */
+html[data-pragresso-wide-pref] table.Excel:has(th[data-fieldname="work_order"]) tr.EditRow table:has(button.FieldHelpButton) :is(input.slcEditor, input.dlcEditor) {
+    border-top-right-radius: 0 !important;
+    border-bottom-right-radius: 0 !important;
+}
+html[data-pragresso-wide-pref] table.Excel:has(th[data-fieldname="work_order"]) tr.EditRow table:has(button.FieldHelpButton) td {
+    background: transparent !important;
+    vertical-align: top !important;
+}
+/* background-COLOR only: the dots are the button's own background image. */
+html[data-pragresso-wide-pref] table.Excel:has(th[data-fieldname="work_order"]) tr.EditRow button.FieldHelpButton {
+    background-color: var(--t-input) !important;
+    border: 1px solid var(--t-input-border) !important;
+    border-left: 0 !important;
+    border-radius: 0 6px 6px 0 !important;
+    height: 28px !important;
+    min-height: 28px !important;
+    box-shadow: none !important;
+}
+html[data-pragresso-wide-pref] table.Excel:has(th[data-fieldname="work_order"]) tr.EditRow button.FieldHelpButton:hover { background-color: var(--t-hover) !important; }
+/* The row being edited: every editor on one line. The project name under
+   the Delproj editor made that cell taller, and with the row centred the
+   Delproj editor rode higher than its neighbours. The name now sits in the
+   cell's reserved bottom padding (absolute, inside the cell: the cells clip
+   overflow), so every editor, the checkbox and the zoom key share a line. */
+html[data-pragresso-wide-pref] table.Excel:has(th[data-fieldname="work_order"]) > tbody > tr.EditRow > td { vertical-align: middle !important; }
+html[data-pragresso-wide-pref] table.Excel:has(th[data-fieldname="work_order"]) > tbody > tr.EditRow.EditRow.EditRow > td { padding-top: 8px !important; padding-bottom: 20px !important; }
+html[data-pragresso-wide-pref] table.Excel:has(th[data-fieldname="work_order"]) > tbody > tr.EditRow > td:has(.agresso-work-order-label) { position: relative !important; }
+html[data-pragresso-wide-pref] table.Excel:has(th[data-fieldname="work_order"]) tr.EditRow .agresso-work-order-label {
+    position: absolute !important; left: 2px; right: 4px; bottom: 4px; margin: 0 !important;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+html[data-pragresso-wide-pref] table.Excel:has(th[data-fieldname="work_order"]) tr.EditRow :is(input, textarea):focus {
+    outline: 2px solid var(--t-accent) !important;
+    outline-offset: -1px;
+}
+/* The project name under the edit row's Delproj editor. */
+html[data-pragresso-wide-pref] table.Excel:has(th[data-fieldname="work_order"]) tr.EditRow .agresso-work-order-label { color: var(--t-muted) !important; }
+
+/* ── Widescreen A / B: Agresso's bottom toolbar, section buttons and top
+ * header in the panels' look (dark and Advania themes, pre-inverted).
+ * Only colours, borders, corners and type — the top header is ExtJS and
+ * positions itself, so nothing there is resized or moved. The bottom
+ * toolbar is position: fixed; it is inset to line up with the header bar.
+ */
+html.agresso-dark-page[data-pragresso-wide-pref] .ToolBarContainer {
+    left: 18px !important;
+    right: 18px !important;
+    bottom: 10px !important;
+    width: auto !important;
+    height: auto !important;
+    box-sizing: border-box;
+    padding: 8px 12px !important;
+    background: #e5e5e5 !important;
+    border: 1px solid #d2d2d2 !important;
+    border-radius: 8px !important;
+    box-shadow: none !important;
+}
+html.agresso-dark-page[data-pragresso-wide-pref] .ToolBarContainer a.RibbonInlineButton,
+html.agresso-dark-page[data-pragresso-wide-pref] .TabContainer button.SectionButton {
+    display: inline-flex !important;
+    align-items: center;
+    height: 34px !important;
+    box-sizing: border-box;
+    padding: 0 14px !important;
+    margin-right: 8px !important;
+    border-radius: 6px !important;
+    border: 1px solid #c4c4c4 !important;
+    background: transparent !important;
+    color: #000000 !important;
+    font: 13px "Segoe UI", system-ui, -apple-system, sans-serif !important;
+    text-decoration: none !important;
+    box-shadow: none !important;
+}
+html.agresso-dark-page[data-pragresso-wide-pref] .ToolBarContainer a.RibbonInlineButton:hover,
+html.agresso-dark-page[data-pragresso-wide-pref] .TabContainer button.SectionButton:hover { background: rgba(0, 0, 0, 0.05) !important; }
+html.agresso-dark-page[data-pragresso-wide-pref] .ToolBarContainer a.RibbonInlineButton > span {
+    height: auto !important; line-height: normal !important; background: none !important; color: inherit !important;
+}
+html.agresso-dark-page[data-pragresso-wide-pref] .ToolBarContainer a.RibbonInlineButtonHappy {
+    background: #7ea6f0 !important;
+    border-color: transparent !important;
+    font-weight: 600 !important;
+}
+html[data-agresso-theme="advania"].agresso-dark-page[data-pragresso-wide-pref] .ToolBarContainer a.RibbonInlineButtonHappy { background: #ff55bd !important; }
+
+/* Top header (ExtJS, top document). */
+html.agresso-dark-page[data-pragresso-wide-pref] .u4-application-header {
+    background: #e9e9e9 !important;
+    border-bottom: 1px solid #d2d2d2 !important;
+    box-shadow: none !important;
+}
+html.agresso-dark-page[data-pragresso-wide-pref] .u4-activitytabpanel > .x-tab-bar,
+html.agresso-dark-page[data-pragresso-wide-pref] .u4-activitytabpanel > .x-tab-bar .x-tab-bar-body {
+    background: #e9e9e9 !important;
+    background-image: none !important;
+}
+html.agresso-dark-page[data-pragresso-wide-pref] .x-tab-bar-strip { background: #d8d8d8 !important; background-image: none !important; }
+html.agresso-dark-page[data-pragresso-wide-pref] .x-tab-bar .x-tab.x-tab-default {
+    background: transparent !important;
+    background-image: none !important;
+    border: 0 !important;
+    border-radius: 6px 6px 0 0 !important;
+    box-shadow: none !important;
+}
+html.agresso-dark-page[data-pragresso-wide-pref] .x-tab-bar .x-tab.x-tab-default:hover { background: rgba(0, 0, 0, 0.05) !important; }
+html.agresso-dark-page[data-pragresso-wide-pref] .x-tab-bar .x-tab.x-tab-default.x-tab-active {
+    background: #e5e5e5 !important;
+    box-shadow: inset 0 -2px 0 #1d56c9 !important;
+}
+html[data-agresso-theme="advania"].agresso-dark-page[data-pragresso-wide-pref] .x-tab-bar .x-tab.x-tab-default.x-tab-active { box-shadow: inset 0 -2px 0 #a10063 !important; }
+html.agresso-dark-page[data-pragresso-wide-pref] .u4-application-header input {
+    border-radius: 6px !important;
+    border: 1px solid #c4c4c4 !important;
+    background: #f2f2f2 !important;
+}
+
+/* ── Widescreen A / B: the whole view fits the window ───────────────────
+ * The page never scrolls; long content scrolls inside its panel. cells.js
+ * (fitWideGrid) marks the div around Tidtransaktion's table.DataListBlue as
+ * [data-pw-scroll] and sizes it down to the bottom toolbar; a spacer row
+ * of ours keeps ∑ and the Lägg till / Ta bort / Kopiera row at the panel's
+ * bottom, and with many rows they stick there. Agresso's form carried a
+ * 19.4 px bottom margin that alone made the page scroll.
+ */
+html[data-pragresso-wide-pref]:has(th[data-fieldname="work_order"]) form.DefaultForm { margin-bottom: 0 !important; }
+html[data-pragresso-wide-pref] [data-pw-scroll] {
+    display: block !important;
+    overflow: auto !important;
+}
+html[data-pragresso-wide-pref] [data-pw-scroll]::-webkit-scrollbar { width: 8px; height: 0; }
+html[data-pragresso-wide-pref] [data-pw-scroll]::-webkit-scrollbar-thumb { background: rgba(0, 0, 0, 0.25); border-radius: 4px; }
+html[data-pragresso-wide-pref] [data-pw-scroll]::-webkit-scrollbar-track { background: transparent; }
+html[data-pragresso-wide-pref] [data-pw-scroll] > table.DataListBlue { width: 100% !important; }
+html[data-pragresso-wide-pref] table.Excel:has(th[data-fieldname="work_order"]) > thead > tr > th { position: sticky !important; top: 0; z-index: 2; }
+html[data-pragresso-wide-pref] table.Excel:has(th[data-fieldname="work_order"]) > tbody > tr.SumItem { position: sticky; z-index: 3; }
+html[data-pragresso-wide-pref] table.Excel:has(th[data-fieldname="work_order"]) > tbody > tr[data-pw-buttons] { position: sticky; bottom: 0; z-index: 3; }
+html[data-pragresso-wide-pref] table.Excel:has(th[data-fieldname="work_order"]) > tbody > tr[data-pw-buttons] > td { background: var(--t-bg) !important; }
+html[data-pragresso-wide-pref] table.Excel:has(th[data-fieldname="work_order"]) > tbody > tr.pw-spacer > td {
+    padding: 0 !important; border: 0 !important; background: var(--t-bg) !important;
+}
+/* The autosave indicator inside the bottom toolbar (cells.js places it). */
+html[data-pragresso-wide-pref] #agresso-autosave-indicator.pw-in-toolbar {
+    background: transparent !important;
+    border: 0 !important;
+    box-shadow: none !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+    padding: 6px 4px 10px !important;
+    /* Fixed width, so the timer bar is the same length whatever the
+       message: sized for the longest one, "Autosave disabled · Paused ·
+       AI agent saved 10:42 (no changes)" (measured live: 414 px with the
+       sub line uncapped; Agresso caps it at 128 px). */
+    width: 440px !important;
+    max-width: none !important;
+    box-sizing: border-box;
+    justify-content: flex-start !important;
+}
+html[data-pragresso-wide-pref] #agresso-autosave-indicator.pw-in-toolbar .agresso-autosave-sub { max-width: none !important; }
+/* The save timer as the indicator's rounded outline (an SVG drawn by
+   cells.js) filling up clockwise; the original bar keeps running unseen and
+   drives it. Full ring when not counting down: lavender / grey when the
+   user switched autosave off, pink / blue when it paused itself. Real
+   colours: the indicator is counter-inverted under the dark page. */
+html[data-pragresso-wide-pref] #agresso-autosave-indicator.pw-in-toolbar { border-radius: 999px !important; padding: 6px 14px !important; }
+html[data-pragresso-wide-pref] #agresso-autosave-indicator.pw-in-toolbar .agresso-autosave-timer { opacity: 0 !important; }
+#pragresso-autosave-ring { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; overflow: visible; }
+#pragresso-autosave-ring rect { fill: none; stroke-width: 2.5; }
+#pragresso-autosave-ring .pw-ring-track { stroke: rgba(255, 255, 255, 0.16); }
+#pragresso-autosave-ring .pw-ring-bar {
+    stroke: #6c9cf5; stroke-linecap: round;
+    transition: stroke-dashoffset 0.3s linear, stroke 0.2s;
+    filter: drop-shadow(0 0 3px rgba(108, 156, 245, 0.55));
+}
+#pragresso-autosave-ring[data-state="manual"] .pw-ring-bar { stroke: #9aa0a6; filter: none; }
+html[data-agresso-theme="advania"] #pragresso-autosave-ring .pw-ring-bar { stroke: #f472b6; filter: drop-shadow(0 0 3px rgba(244, 114, 182, 0.6)); }
+html[data-agresso-theme="advania"] #pragresso-autosave-ring[data-state="manual"] .pw-ring-bar { stroke: #c9b3e6; filter: none; }
+
+/* ── Advania: no red ─────────────────────────────────────────────────────
+ * Agresso marks weekends and holidays with an inline #ff8080 (cell
+ * backgrounds and the day headers' text), which the dark page turned into
+ * a dull red that clashed with the brand. Under Advania they become a
+ * muted indigo with lavender headers (pre-inverted: #dccbea lands on about
+ * #3a2b4a, #4a2a66 on about #c9b3e6). The paused / disabled autosave label
+ * becomes brand lavender instead of coral red (the indicator is
+ * counter-inverted, so that one is a real colour).
+ */
+html[data-agresso-theme="advania"].agresso-dark-page td[style*="ff8080" i] { background-color: #dccbea !important; }
+html[data-agresso-theme="advania"].agresso-dark-page [style*="color:#ff8080" i],
+html[data-agresso-theme="advania"].agresso-dark-page [style*="color: #ff8080" i] { color: #4a2a66 !important; }
+html[data-agresso-theme="advania"] #agresso-autosave-indicator .agresso-autosave-label { color: #c9b3e6 !important; }
+
+/* Agresso's message bar ("Inga ändringar gjorda! · Information: 1") as an
+   inset bar of its own at the bottom; cells.js lifts the toolbar above it
+   while it shows. And no page scroll at all while the view is laid out to
+   fit: Agresso reserves room below for its toolbar and messages, which
+   otherwise scrolled the page 46 px (seen live). */
+html.agresso-dark-page[data-pragresso-wide-pref] .LivemessagesContainer {
+    left: 18px !important; right: 18px !important; bottom: 10px !important; width: auto !important;
+    box-sizing: border-box; padding: 6px 12px !important;
+    background: #e5e5e5 !important; border: 1px solid #d2d2d2 !important; border-radius: 8px !important;
+}
+html[data-pragresso-wide-pref]:not([data-pragresso-wide-details]):has(th[data-fieldname="work_order"]) body { overflow: hidden !important; }

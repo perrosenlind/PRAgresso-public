@@ -1,12 +1,16 @@
 {
   "manifest_version": 3,
   "name": "PRAgresso",
-  "version": "1.9.0",
+  "version": "1.10.0",
   "description": "Quality-of-life enhancements for the Unit4 ERP / Agresso timesheet — inline autosave, full-page dark mode, period-end reminders, wider Beskrivningstext, session keep-alive. Configurable via the options page.",
   "icons": {
     "48": "icons/48.png"
   },
-  "permissions": ["storage", "alarms"],
+  "permissions": [
+    "storage",
+    "alarms",
+    "nativeMessaging"
+  ],
   "host_permissions": [
     "https://ubw.unit4cloud.com/*"
   ],
@@ -15,7 +19,9 @@
   },
   "action": {
     "default_title": "PRAgresso — click for options",
-    "default_icon": { "48": "icons/48.png" }
+    "default_icon": {
+      "48": "icons/48.png"
+    }
   },
   "options_ui": {
     "page": "options.html",
@@ -32,8 +38,22 @@
   },
   "content_scripts": [
     {
-      "css": ["styles.css"],
-      "js": ["cells.js"],
+      "js": [
+        "early.js"
+      ],
+      "matches": [
+        "https://ubw.unit4cloud.com/*"
+      ],
+      "all_frames": true,
+      "run_at": "document_start"
+    },
+    {
+      "css": [
+        "styles.css"
+      ],
+      "js": [
+        "cells.js"
+      ],
       "matches": [
         "https://ubw.unit4cloud.com/*"
       ],
