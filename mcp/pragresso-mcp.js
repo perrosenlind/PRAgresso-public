@@ -30,7 +30,7 @@ const net = require('net');
 const path = require('path');
 
 const HOST_NAME = 'se.pragresso.mcp';
-const VERSION = '1.10.0';
+const VERSION = '1.10.1';
 const STATE_DIR = path.join(os.homedir(), '.pragresso');
 const SOCKET_PATH = process.platform === 'win32'
   ? '\\\\.\\pipe\\pragresso-mcp-' + os.userInfo().username

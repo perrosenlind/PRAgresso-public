@@ -937,32 +937,32 @@ tr.EditRow input[data-pragresso-sticky="1"][data-pragresso-badvalue="1"] {
  * and then narrows. cells.js fills the empty column with its aside and adds
  * the rest of the styling (WIDE_CSS). Requires :has() (Chrome 105+).
  */
-html[data-pragresso-wide-pref] .TabContainer:has(th[data-fieldname="work_order"]) {
+html[data-pragresso-wide-pref] .TabContainer:has(th[data-fieldname="work_order"]):has(th[data-fieldname^="reg_value"]) {
     display: grid !important;
     column-gap: 12px;
     align-items: start;
 }
-html[data-pragresso-wide-pref="right"] .TabContainer:has(th[data-fieldname="work_order"]) {
+html[data-pragresso-wide-pref="right"] .TabContainer:has(th[data-fieldname="work_order"]):has(th[data-fieldname^="reg_value"]) {
     grid-template-columns: minmax(0, 1fr) clamp(340px, 22%, 460px);
 }
-html[data-pragresso-wide-pref="rail"] .TabContainer:has(th[data-fieldname="work_order"]) {
+html[data-pragresso-wide-pref="rail"] .TabContainer:has(th[data-fieldname="work_order"]):has(th[data-fieldname^="reg_value"]) {
     grid-template-columns: clamp(280px, 16%, 340px) minmax(0, 1fr);
 }
 html[data-pragresso-wide-pref="right"] #pragresso-wide-aside { margin-top: 10px; }
-html[data-pragresso-wide-pref] .TabContainer:has(th[data-fieldname="work_order"]) > * {
+html[data-pragresso-wide-pref] .TabContainer:has(th[data-fieldname="work_order"]):has(th[data-fieldname^="reg_value"]) > * {
     grid-column: 1 / -1;
     min-width: 0;
 }
-html[data-pragresso-wide-pref="right"] .TabContainer:has(th[data-fieldname="work_order"]) > :has(th[data-fieldname="work_order"]) {
+html[data-pragresso-wide-pref="right"] .TabContainer:has(th[data-fieldname="work_order"]):has(th[data-fieldname^="reg_value"]) > :has(th[data-fieldname="work_order"]):has(th[data-fieldname^="reg_value"]) {
     grid-column: 1;
 }
-html[data-pragresso-wide-pref="rail"] .TabContainer:has(th[data-fieldname="work_order"]) > :has(th[data-fieldname="work_order"]) {
+html[data-pragresso-wide-pref="rail"] .TabContainer:has(th[data-fieldname="work_order"]):has(th[data-fieldname^="reg_value"]) > :has(th[data-fieldname="work_order"]):has(th[data-fieldname^="reg_value"]) {
     grid-column: 2;
 }
-html[data-pragresso-wide-pref="right"][data-pragresso-wide-folded] .TabContainer:has(th[data-fieldname="work_order"]) {
+html[data-pragresso-wide-pref="right"][data-pragresso-wide-folded] .TabContainer:has(th[data-fieldname="work_order"]):has(th[data-fieldname^="reg_value"]) {
     grid-template-columns: minmax(0, 1fr) 44px;
 }
-html[data-pragresso-wide-pref="rail"][data-pragresso-wide-folded] .TabContainer:has(th[data-fieldname="work_order"]) {
+html[data-pragresso-wide-pref="rail"][data-pragresso-wide-folded] .TabContainer:has(th[data-fieldname="work_order"]):has(th[data-fieldname^="reg_value"]) {
     grid-template-columns: 44px minmax(0, 1fr);
 }
 
@@ -1095,12 +1095,12 @@ html[data-agresso-theme="advania"] :is(#pragresso-delproj-summary, #pragresso-li
  * "Arbetstimmar" (holds the Återstående sum row) are hidden until
  * "Period & arbetstimmar ▾" opens them; their fields keep working.
  */
-html[data-pragresso-wide-pref] .TabContainer:has(th[data-fieldname="work_order"]) {
+html[data-pragresso-wide-pref] .TabContainer:has(th[data-fieldname="work_order"]):has(th[data-fieldname^="reg_value"]) {
     position: relative;
     padding-top: 60px !important;
 }
-html[data-pragresso-wide-pref]:not([data-pragresso-wide-details]) .TabContainer:has(th[data-fieldname="work_order"]) > :has(input[name$="$date_in_period$i"]),
-html[data-pragresso-wide-pref]:not([data-pragresso-wide-details]) .TabContainer:has(th[data-fieldname="work_order"]) > :has(td[id*="__sumRow_normal_hrs"]) {
+html[data-pragresso-wide-pref]:not([data-pragresso-wide-details]) .TabContainer:has(th[data-fieldname="work_order"]):has(th[data-fieldname^="reg_value"]) > :has(input[name$="$date_in_period$i"]),
+html[data-pragresso-wide-pref]:not([data-pragresso-wide-details]) .TabContainer:has(th[data-fieldname="work_order"]):has(th[data-fieldname^="reg_value"]) > :has(td[id*="__sumRow_normal_hrs"]) {
     display: none !important;
 }
 /* B: the chips sit at the top of Tidtransaktion's own block (a grid row
@@ -1198,36 +1198,36 @@ html[data-pragresso-wide-pref="rail"] #pragresso-wide-aside #pragresso-library-p
  * column sizing and our edit-row width lock depend on. Pre-inverted under
  * the dark page, like the panels (see the note above their rules).
  */
-html[data-pragresso-wide-pref] .TabContainer > :has(th[data-fieldname="work_order"]) {
+html[data-pragresso-wide-pref] .TabContainer > :has(th[data-fieldname="work_order"]):has(th[data-fieldname^="reg_value"]) {
     --t-bg: #ffffff; --t-fg: #1d1f22; --t-muted: #5b6470; --t-border: #d7dbe1; --t-sep: #e7e9ed; --t-alt: #fafbfc; --t-hover: rgba(37, 99, 235, 0.05);
 }
-html.agresso-dark-page[data-pragresso-wide-pref] .TabContainer > :has(th[data-fieldname="work_order"]) {
+html.agresso-dark-page[data-pragresso-wide-pref] .TabContainer > :has(th[data-fieldname="work_order"]):has(th[data-fieldname^="reg_value"]) {
     --t-bg: #e5e5e5; --t-fg: #000000; --t-muted: #404040; --t-border: #d2d2d2; --t-sep: #d8d8d8; --t-alt: #e1e1e1; --t-hover: rgba(0, 0, 0, 0.04);
 }
-html[data-agresso-theme="advania"][data-pragresso-wide-pref] .TabContainer > :has(th[data-fieldname="work_order"]) { --t-border: #e0b3ff; }
-html[data-pragresso-wide-pref] .TabContainer > :has(th[data-fieldname="work_order"]) .u4-section-container .u4-section-container {
+html[data-agresso-theme="advania"][data-pragresso-wide-pref] .TabContainer > :has(th[data-fieldname="work_order"]):has(th[data-fieldname^="reg_value"]) { --t-border: #e0b3ff; }
+html[data-pragresso-wide-pref] .TabContainer > :has(th[data-fieldname="work_order"]):has(th[data-fieldname^="reg_value"]) .u4-section-container .u4-section-container {
     background: var(--t-bg) !important;
     border: 1px solid var(--t-border) !important;
     border-radius: 8px !important;
     /* No overflow: hidden — it would clip Agresso's lookup pop-ups. */
 }
-html[data-pragresso-wide-pref] .TabContainer > :has(th[data-fieldname="work_order"]) .TopBlue {
+html[data-pragresso-wide-pref] .TabContainer > :has(th[data-fieldname="work_order"]):has(th[data-fieldname^="reg_value"]) .TopBlue {
     background: transparent !important;
     border: 0 !important;
     border-bottom: 1px solid var(--t-sep) !important;
 }
-html[data-pragresso-wide-pref] .TabContainer > :has(th[data-fieldname="work_order"]) .SectionTitle {
+html[data-pragresso-wide-pref] .TabContainer > :has(th[data-fieldname="work_order"]):has(th[data-fieldname^="reg_value"]) .SectionTitle {
     font: 600 14px/1.4 "Segoe UI", system-ui, -apple-system, sans-serif !important;
     color: var(--t-fg) !important;
 }
-html[data-pragresso-wide-pref] table.Excel:has(th[data-fieldname="work_order"]) {
+html[data-pragresso-wide-pref] table.Excel:has(th[data-fieldname="work_order"]):has(th[data-fieldname^="reg_value"]) {
     font-family: "Segoe UI", system-ui, -apple-system, sans-serif !important;
     font-size: 13px !important;
     color: var(--t-fg) !important;
     background: var(--t-bg) !important;
     border-collapse: collapse !important;
 }
-html[data-pragresso-wide-pref] table.Excel:has(th[data-fieldname="work_order"]) > thead > tr > th {
+html[data-pragresso-wide-pref] table.Excel:has(th[data-fieldname="work_order"]):has(th[data-fieldname^="reg_value"]) > thead > tr > th {
     background: var(--t-bg) !important;
     color: var(--t-muted) !important;
     font-weight: 500 !important;
@@ -1237,7 +1237,7 @@ html[data-pragresso-wide-pref] table.Excel:has(th[data-fieldname="work_order"]) 
     padding-top: 8px !important;
     padding-bottom: 8px !important;
 }
-html[data-pragresso-wide-pref] table.Excel:has(th[data-fieldname="work_order"]) > tbody > tr:is(.ListItem, .AltListItem, .EditRow) > td {
+html[data-pragresso-wide-pref] table.Excel:has(th[data-fieldname="work_order"]):has(th[data-fieldname^="reg_value"]) > tbody > tr:is(.ListItem, .AltListItem, .EditRow) > td {
     background-color: var(--t-bg);
     border-left: 0 !important;
     border-right: 0 !important;
@@ -1246,9 +1246,9 @@ html[data-pragresso-wide-pref] table.Excel:has(th[data-fieldname="work_order"]) 
     padding-top: 7px !important;
     padding-bottom: 7px !important;
 }
-html[data-pragresso-wide-pref] table.Excel:has(th[data-fieldname="work_order"]) > tbody > tr.AltListItem > td { background-color: var(--t-alt); }
-html[data-pragresso-wide-pref] table.Excel:has(th[data-fieldname="work_order"]) > tbody > tr:is(.ListItem, .AltListItem):hover > td { background-image: linear-gradient(var(--t-hover), var(--t-hover)); }
-html[data-pragresso-wide-pref] table.Excel:has(th[data-fieldname="work_order"]) > tbody > tr.SumItem > td {
+html[data-pragresso-wide-pref] table.Excel:has(th[data-fieldname="work_order"]):has(th[data-fieldname^="reg_value"]) > tbody > tr.AltListItem > td { background-color: var(--t-alt); }
+html[data-pragresso-wide-pref] table.Excel:has(th[data-fieldname="work_order"]):has(th[data-fieldname^="reg_value"]) > tbody > tr:is(.ListItem, .AltListItem):hover > td { background-image: linear-gradient(var(--t-hover), var(--t-hover)); }
+html[data-pragresso-wide-pref] table.Excel:has(th[data-fieldname="work_order"]):has(th[data-fieldname^="reg_value"]) > tbody > tr.SumItem > td {
     background-color: var(--t-bg);
     border: 0 !important;
     border-top: 1px solid var(--t-border) !important;
@@ -1261,18 +1261,18 @@ html[data-pragresso-wide-pref] table.Excel:has(th[data-fieldname="work_order"]) 
  * the select checkbox, the zoom key and the edit row's editors with their
  * "…" field-help buttons. Heights may change; widths never do.
  */
-html[data-pragresso-wide-pref] .TabContainer > :has(th[data-fieldname="work_order"]) {
+html[data-pragresso-wide-pref] .TabContainer > :has(th[data-fieldname="work_order"]):has(th[data-fieldname^="reg_value"]) {
     --t-input: #ffffff; --t-input-border: #c9ced6; --t-accent: #2563eb; --t-accent-fill: #2563eb;
     --t-check: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M3.5 8.5l3 3 6-6.5' fill='none' stroke='%23ffffff' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
 }
-html.agresso-dark-page[data-pragresso-wide-pref] .TabContainer > :has(th[data-fieldname="work_order"]) {
+html.agresso-dark-page[data-pragresso-wide-pref] .TabContainer > :has(th[data-fieldname="work_order"]):has(th[data-fieldname^="reg_value"]) {
     --t-input: #f2f2f2; --t-input-border: #c4c4c4; --t-accent: #1d56c9; --t-accent-fill: #7ea6f0;
     --t-check: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M3.5 8.5l3 3 6-6.5' fill='none' stroke='%23000000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
 }
-html[data-agresso-theme="advania"][data-pragresso-wide-pref] .TabContainer > :has(th[data-fieldname="work_order"]) { --t-accent: #a10063; --t-accent-fill: #ff55bd; }
+html[data-agresso-theme="advania"][data-pragresso-wide-pref] .TabContainer > :has(th[data-fieldname="work_order"]):has(th[data-fieldname^="reg_value"]) { --t-accent: #a10063; --t-accent-fill: #ff55bd; }
 
 /* Select checkbox (rows and header). */
-html[data-pragresso-wide-pref] table.Excel:has(th[data-fieldname="work_order"]) input[type="checkbox"] {
+html[data-pragresso-wide-pref] table.Excel:has(th[data-fieldname="work_order"]):has(th[data-fieldname^="reg_value"]) input[type="checkbox"] {
     appearance: none !important;
     -webkit-appearance: none !important;
     width: 16px !important;
@@ -1284,19 +1284,19 @@ html[data-pragresso-wide-pref] table.Excel:has(th[data-fieldname="work_order"]) 
     background: transparent center / 14px 14px no-repeat !important;
     cursor: pointer;
 }
-html[data-pragresso-wide-pref] table.Excel:has(th[data-fieldname="work_order"]) input[type="checkbox"]:checked {
+html[data-pragresso-wide-pref] table.Excel:has(th[data-fieldname="work_order"]):has(th[data-fieldname^="reg_value"]) input[type="checkbox"]:checked {
     background-color: var(--t-accent-fill) !important;
     background-image: var(--t-check) !important;
     border-color: var(--t-accent-fill) !important;
 }
-html[data-pragresso-wide-pref] table.Excel:has(th[data-fieldname="work_order"]) input[type="checkbox"]:focus-visible {
+html[data-pragresso-wide-pref] table.Excel:has(th[data-fieldname="work_order"]):has(th[data-fieldname^="reg_value"]) input[type="checkbox"]:focus-visible {
     outline: 2px solid var(--t-accent) !important;
     outline-offset: 2px;
 }
 
 /* Zoom key: Agresso's sprite replaced by a clean magnifier (inline SVG),
    muted, tinted with the accent on hover. */
-html[data-pragresso-wide-pref] table.Excel:has(th[data-fieldname="work_order"]) button.GridRowButton {
+html[data-pragresso-wide-pref] table.Excel:has(th[data-fieldname="work_order"]):has(th[data-fieldname^="reg_value"]) button.GridRowButton {
     width: 28px !important;
     height: 28px !important;
     background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Ccircle cx='7' cy='7' r='4.5' fill='none' stroke='%235b6470' stroke-width='1.6'/%3E%3Cpath d='M10.4 10.4L14 14' stroke='%235b6470' stroke-width='1.8' stroke-linecap='round'/%3E%3C/svg%3E") center / 16px 16px no-repeat !important;
@@ -1305,14 +1305,14 @@ html[data-pragresso-wide-pref] table.Excel:has(th[data-fieldname="work_order"]) 
     box-shadow: none !important;
     cursor: pointer;
 }
-html[data-pragresso-wide-pref] table.Excel:has(th[data-fieldname="work_order"]) button.GridRowButton > * { display: none !important; }
-html[data-pragresso-wide-pref] table.Excel:has(th[data-fieldname="work_order"]) button.GridRowButton:hover { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Ccircle cx='7' cy='7' r='4.5' fill='none' stroke='%232563eb' stroke-width='1.6'/%3E%3Cpath d='M10.4 10.4L14 14' stroke='%232563eb' stroke-width='1.8' stroke-linecap='round'/%3E%3C/svg%3E") !important; background-color: var(--t-hover) !important; }
-html.agresso-dark-page[data-pragresso-wide-pref] table.Excel:has(th[data-fieldname="work_order"]) button.GridRowButton { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Ccircle cx='7' cy='7' r='4.5' fill='none' stroke='%23404040' stroke-width='1.6'/%3E%3Cpath d='M10.4 10.4L14 14' stroke='%23404040' stroke-width='1.8' stroke-linecap='round'/%3E%3C/svg%3E") !important; }
-html.agresso-dark-page[data-pragresso-wide-pref] table.Excel:has(th[data-fieldname="work_order"]) button.GridRowButton:hover { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Ccircle cx='7' cy='7' r='4.5' fill='none' stroke='%231d56c9' stroke-width='1.6'/%3E%3Cpath d='M10.4 10.4L14 14' stroke='%231d56c9' stroke-width='1.8' stroke-linecap='round'/%3E%3C/svg%3E") !important; }
-html[data-agresso-theme="advania"][data-pragresso-wide-pref] table.Excel:has(th[data-fieldname="work_order"]) button.GridRowButton:hover { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Ccircle cx='7' cy='7' r='4.5' fill='none' stroke='%23a10063' stroke-width='1.6'/%3E%3Cpath d='M10.4 10.4L14 14' stroke='%23a10063' stroke-width='1.8' stroke-linecap='round'/%3E%3C/svg%3E") !important; }
+html[data-pragresso-wide-pref] table.Excel:has(th[data-fieldname="work_order"]):has(th[data-fieldname^="reg_value"]) button.GridRowButton > * { display: none !important; }
+html[data-pragresso-wide-pref] table.Excel:has(th[data-fieldname="work_order"]):has(th[data-fieldname^="reg_value"]) button.GridRowButton:hover { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Ccircle cx='7' cy='7' r='4.5' fill='none' stroke='%232563eb' stroke-width='1.6'/%3E%3Cpath d='M10.4 10.4L14 14' stroke='%232563eb' stroke-width='1.8' stroke-linecap='round'/%3E%3C/svg%3E") !important; background-color: var(--t-hover) !important; }
+html.agresso-dark-page[data-pragresso-wide-pref] table.Excel:has(th[data-fieldname="work_order"]):has(th[data-fieldname^="reg_value"]) button.GridRowButton { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Ccircle cx='7' cy='7' r='4.5' fill='none' stroke='%23404040' stroke-width='1.6'/%3E%3Cpath d='M10.4 10.4L14 14' stroke='%23404040' stroke-width='1.8' stroke-linecap='round'/%3E%3C/svg%3E") !important; }
+html.agresso-dark-page[data-pragresso-wide-pref] table.Excel:has(th[data-fieldname="work_order"]):has(th[data-fieldname^="reg_value"]) button.GridRowButton:hover { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Ccircle cx='7' cy='7' r='4.5' fill='none' stroke='%231d56c9' stroke-width='1.6'/%3E%3Cpath d='M10.4 10.4L14 14' stroke='%231d56c9' stroke-width='1.8' stroke-linecap='round'/%3E%3C/svg%3E") !important; }
+html[data-agresso-theme="advania"][data-pragresso-wide-pref] table.Excel:has(th[data-fieldname="work_order"]):has(th[data-fieldname^="reg_value"]) button.GridRowButton:hover { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Ccircle cx='7' cy='7' r='4.5' fill='none' stroke='%23a10063' stroke-width='1.6'/%3E%3Cpath d='M10.4 10.4L14 14' stroke='%23a10063' stroke-width='1.8' stroke-linecap='round'/%3E%3C/svg%3E") !important; }
 
 /* Edit row editors and their "…" buttons, joined into one field. */
-html[data-pragresso-wide-pref] table.Excel:has(th[data-fieldname="work_order"]) tr.EditRow :is(input.slcEditor, input.dlcEditor, input.Edit, textarea.Edit) {
+html[data-pragresso-wide-pref] table.Excel:has(th[data-fieldname="work_order"]):has(th[data-fieldname^="reg_value"]) tr.EditRow :is(input.slcEditor, input.dlcEditor, input.Edit, textarea.Edit) {
     background: var(--t-input) !important;
     color: var(--t-fg) !important;
     border: 1px solid var(--t-input-border) !important;
@@ -1323,23 +1323,23 @@ html[data-pragresso-wide-pref] table.Excel:has(th[data-fieldname="work_order"]) 
 }
 /* Agresso's own inset shadow goes, but never PRAgresso's markers: the
    sticky field's blue edge and the unknown-value red ring are shadows. */
-html[data-pragresso-wide-pref] table.Excel:has(th[data-fieldname="work_order"]) tr.EditRow :is(input.slcEditor, input.dlcEditor, input.Edit, textarea.Edit):not([data-pragresso-sticky="1"]):not([data-pragresso-badvalue="1"]) {
+html[data-pragresso-wide-pref] table.Excel:has(th[data-fieldname="work_order"]):has(th[data-fieldname^="reg_value"]) tr.EditRow :is(input.slcEditor, input.dlcEditor, input.Edit, textarea.Edit):not([data-pragresso-sticky="1"]):not([data-pragresso-badvalue="1"]) {
     box-shadow: none !important;
 }
 /* The "…" field-help buttons keep Agresso's own size and position (an
    attempt to tuck them inside the editor hid them, and with them the
    lookup they open). They only take the editor's colours and corners, so
    editor and button read as one field. */
-html[data-pragresso-wide-pref] table.Excel:has(th[data-fieldname="work_order"]) tr.EditRow table:has(button.FieldHelpButton) :is(input.slcEditor, input.dlcEditor) {
+html[data-pragresso-wide-pref] table.Excel:has(th[data-fieldname="work_order"]):has(th[data-fieldname^="reg_value"]) tr.EditRow table:has(button.FieldHelpButton) :is(input.slcEditor, input.dlcEditor) {
     border-top-right-radius: 0 !important;
     border-bottom-right-radius: 0 !important;
 }
-html[data-pragresso-wide-pref] table.Excel:has(th[data-fieldname="work_order"]) tr.EditRow table:has(button.FieldHelpButton) td {
+html[data-pragresso-wide-pref] table.Excel:has(th[data-fieldname="work_order"]):has(th[data-fieldname^="reg_value"]) tr.EditRow table:has(button.FieldHelpButton) td {
     background: transparent !important;
     vertical-align: top !important;
 }
 /* background-COLOR only: the dots are the button's own background image. */
-html[data-pragresso-wide-pref] table.Excel:has(th[data-fieldname="work_order"]) tr.EditRow button.FieldHelpButton {
+html[data-pragresso-wide-pref] table.Excel:has(th[data-fieldname="work_order"]):has(th[data-fieldname^="reg_value"]) tr.EditRow button.FieldHelpButton {
     background-color: var(--t-input) !important;
     border: 1px solid var(--t-input-border) !important;
     border-left: 0 !important;
@@ -1348,25 +1348,25 @@ html[data-pragresso-wide-pref] table.Excel:has(th[data-fieldname="work_order"]) 
     min-height: 28px !important;
     box-shadow: none !important;
 }
-html[data-pragresso-wide-pref] table.Excel:has(th[data-fieldname="work_order"]) tr.EditRow button.FieldHelpButton:hover { background-color: var(--t-hover) !important; }
+html[data-pragresso-wide-pref] table.Excel:has(th[data-fieldname="work_order"]):has(th[data-fieldname^="reg_value"]) tr.EditRow button.FieldHelpButton:hover { background-color: var(--t-hover) !important; }
 /* The row being edited: every editor on one line. The project name under
    the Delproj editor made that cell taller, and with the row centred the
    Delproj editor rode higher than its neighbours. The name now sits in the
    cell's reserved bottom padding (absolute, inside the cell: the cells clip
    overflow), so every editor, the checkbox and the zoom key share a line. */
-html[data-pragresso-wide-pref] table.Excel:has(th[data-fieldname="work_order"]) > tbody > tr.EditRow > td { vertical-align: middle !important; }
-html[data-pragresso-wide-pref] table.Excel:has(th[data-fieldname="work_order"]) > tbody > tr.EditRow.EditRow.EditRow > td { padding-top: 8px !important; padding-bottom: 20px !important; }
-html[data-pragresso-wide-pref] table.Excel:has(th[data-fieldname="work_order"]) > tbody > tr.EditRow > td:has(.agresso-work-order-label) { position: relative !important; }
-html[data-pragresso-wide-pref] table.Excel:has(th[data-fieldname="work_order"]) tr.EditRow .agresso-work-order-label {
+html[data-pragresso-wide-pref] table.Excel:has(th[data-fieldname="work_order"]):has(th[data-fieldname^="reg_value"]) > tbody > tr.EditRow > td { vertical-align: middle !important; }
+html[data-pragresso-wide-pref] table.Excel:has(th[data-fieldname="work_order"]):has(th[data-fieldname^="reg_value"]) > tbody > tr.EditRow.EditRow.EditRow > td { padding-top: 8px !important; padding-bottom: 20px !important; }
+html[data-pragresso-wide-pref] table.Excel:has(th[data-fieldname="work_order"]):has(th[data-fieldname^="reg_value"]) > tbody > tr.EditRow > td:has(.agresso-work-order-label) { position: relative !important; }
+html[data-pragresso-wide-pref] table.Excel:has(th[data-fieldname="work_order"]):has(th[data-fieldname^="reg_value"]) tr.EditRow .agresso-work-order-label {
     position: absolute !important; left: 2px; right: 4px; bottom: 4px; margin: 0 !important;
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-html[data-pragresso-wide-pref] table.Excel:has(th[data-fieldname="work_order"]) tr.EditRow :is(input, textarea):focus {
+html[data-pragresso-wide-pref] table.Excel:has(th[data-fieldname="work_order"]):has(th[data-fieldname^="reg_value"]) tr.EditRow :is(input, textarea):focus {
     outline: 2px solid var(--t-accent) !important;
     outline-offset: -1px;
 }
 /* The project name under the edit row's Delproj editor. */
-html[data-pragresso-wide-pref] table.Excel:has(th[data-fieldname="work_order"]) tr.EditRow .agresso-work-order-label { color: var(--t-muted) !important; }
+html[data-pragresso-wide-pref] table.Excel:has(th[data-fieldname="work_order"]):has(th[data-fieldname^="reg_value"]) tr.EditRow .agresso-work-order-label { color: var(--t-muted) !important; }
 
 /* ── Widescreen A / B: Agresso's bottom toolbar, section buttons and top
  * header in the panels' look (dark and Advania themes, pre-inverted).
@@ -1454,7 +1454,7 @@ html.agresso-dark-page[data-pragresso-wide-pref] .u4-application-header input {
  * bottom, and with many rows they stick there. Agresso's form carried a
  * 19.4 px bottom margin that alone made the page scroll.
  */
-html[data-pragresso-wide-pref]:has(th[data-fieldname="work_order"]) form.DefaultForm { margin-bottom: 0 !important; }
+html[data-pragresso-wide-pref]:has(th[data-fieldname="work_order"]):has(th[data-fieldname^="reg_value"]) form.DefaultForm { margin-bottom: 0 !important; }
 html[data-pragresso-wide-pref] [data-pw-scroll] {
     display: block !important;
     overflow: auto !important;
@@ -1463,11 +1463,11 @@ html[data-pragresso-wide-pref] [data-pw-scroll]::-webkit-scrollbar { width: 8px;
 html[data-pragresso-wide-pref] [data-pw-scroll]::-webkit-scrollbar-thumb { background: rgba(0, 0, 0, 0.25); border-radius: 4px; }
 html[data-pragresso-wide-pref] [data-pw-scroll]::-webkit-scrollbar-track { background: transparent; }
 html[data-pragresso-wide-pref] [data-pw-scroll] > table.DataListBlue { width: 100% !important; }
-html[data-pragresso-wide-pref] table.Excel:has(th[data-fieldname="work_order"]) > thead > tr > th { position: sticky !important; top: 0; z-index: 2; }
-html[data-pragresso-wide-pref] table.Excel:has(th[data-fieldname="work_order"]) > tbody > tr.SumItem { position: sticky; z-index: 3; }
-html[data-pragresso-wide-pref] table.Excel:has(th[data-fieldname="work_order"]) > tbody > tr[data-pw-buttons] { position: sticky; bottom: 0; z-index: 3; }
-html[data-pragresso-wide-pref] table.Excel:has(th[data-fieldname="work_order"]) > tbody > tr[data-pw-buttons] > td { background: var(--t-bg) !important; }
-html[data-pragresso-wide-pref] table.Excel:has(th[data-fieldname="work_order"]) > tbody > tr.pw-spacer > td {
+html[data-pragresso-wide-pref] table.Excel:has(th[data-fieldname="work_order"]):has(th[data-fieldname^="reg_value"]) > thead > tr > th { position: sticky !important; top: 0; z-index: 2; }
+html[data-pragresso-wide-pref] table.Excel:has(th[data-fieldname="work_order"]):has(th[data-fieldname^="reg_value"]) > tbody > tr.SumItem { position: sticky; z-index: 3; }
+html[data-pragresso-wide-pref] table.Excel:has(th[data-fieldname="work_order"]):has(th[data-fieldname^="reg_value"]) > tbody > tr[data-pw-buttons] { position: sticky; bottom: 0; z-index: 3; }
+html[data-pragresso-wide-pref] table.Excel:has(th[data-fieldname="work_order"]):has(th[data-fieldname^="reg_value"]) > tbody > tr[data-pw-buttons] > td { background: var(--t-bg) !important; }
+html[data-pragresso-wide-pref] table.Excel:has(th[data-fieldname="work_order"]):has(th[data-fieldname^="reg_value"]) > tbody > tr.pw-spacer > td {
     padding: 0 !important; border: 0 !important; background: var(--t-bg) !important;
 }
 /* The autosave indicator inside the bottom toolbar (cells.js places it). */
@@ -1531,4 +1531,59 @@ html.agresso-dark-page[data-pragresso-wide-pref] .LivemessagesContainer {
     box-sizing: border-box; padding: 6px 12px !important;
     background: #e5e5e5 !important; border: 1px solid #d2d2d2 !important; border-radius: 8px !important;
 }
-html[data-pragresso-wide-pref]:not([data-pragresso-wide-details]):has(th[data-fieldname="work_order"]) body { overflow: hidden !important; }
+html[data-pragresso-wide-pref]:not([data-pragresso-wide-details]):has(th[data-fieldname="work_order"]):has(th[data-fieldname^="reg_value"]) body { overflow: hidden !important; }
+
+/* ── Widescreen A / B on Agresso's other views (Tid per resurs and other
+ * reports): the same panel look as the timesheet, without its fit-to-window
+ * layout. These pages scroll as a whole, so the body gets room below the
+ * fixed bottom toolbar, and a shadow in the page colour fills the 10 px gap
+ * under it so rows do not show through. A ::after does not work there:
+ * Agresso puts overflow on .ToolBarContainer and clips it. Pre-inverted
+ * like the rest. Verified live on Tid per resurs.
+ */
+html.agresso-dark-page[data-pragresso-wide-pref]:not(:has(th[data-fieldname^="reg_value"])) .TabContainer {
+    --t-bg: #e5e5e5; --t-fg: #000000; --t-muted: #404040; --t-border: #d2d2d2; --t-sep: #d8d8d8; --t-alt: #e1e1e1; --t-hover: rgba(0, 0, 0, 0.04);
+}
+html[data-agresso-theme="advania"].agresso-dark-page[data-pragresso-wide-pref]:not(:has(th[data-fieldname^="reg_value"])) .TabContainer { --t-border: #e0b3ff; }
+html.agresso-dark-page[data-pragresso-wide-pref]:not(:has(th[data-fieldname^="reg_value"])) .TabContainer > .u4-section-container.u4-boxed-section {
+    background: var(--t-bg) !important;
+    border: 1px solid var(--t-border) !important;
+    border-radius: 8px !important;
+    margin-bottom: 12px !important;
+    box-sizing: border-box;
+}
+html.agresso-dark-page[data-pragresso-wide-pref]:not(:has(th[data-fieldname^="reg_value"])) .TabContainer > .u4-boxed-section > .TopBlue {
+    background: transparent !important;
+    border: 0 !important;
+    border-bottom: 1px solid var(--t-sep) !important;
+    border-radius: 8px 8px 0 0;
+}
+html.agresso-dark-page[data-pragresso-wide-pref]:not(:has(th[data-fieldname^="reg_value"])) .TabContainer .SectionTitle {
+    font: 600 14px/1.4 "Segoe UI", system-ui, -apple-system, sans-serif !important;
+    color: var(--t-fg) !important;
+}
+html.agresso-dark-page[data-pragresso-wide-pref]:not(:has(th[data-fieldname^="reg_value"])) .TabContainer,
+html.agresso-dark-page[data-pragresso-wide-pref]:not(:has(th[data-fieldname^="reg_value"])) table.Excel,
+html.agresso-dark-page[data-pragresso-wide-pref]:not(:has(th[data-fieldname^="reg_value"])) table.Excel * {
+    font-family: "Segoe UI", system-ui, -apple-system, sans-serif !important;
+}
+html.agresso-dark-page[data-pragresso-wide-pref]:not(:has(th[data-fieldname^="reg_value"])) table.Excel {
+    font-size: 13px !important; color: var(--t-fg) !important; background: var(--t-bg) !important; border-collapse: collapse !important;
+}
+html.agresso-dark-page[data-pragresso-wide-pref]:not(:has(th[data-fieldname^="reg_value"])) table.Excel > thead > tr > th {
+    background: var(--t-bg) !important; color: var(--t-muted) !important; font-weight: 500 !important; font-size: 12px !important;
+    border: 0 !important; border-bottom: 1px solid var(--t-sep) !important; padding-top: 8px !important; padding-bottom: 8px !important;
+}
+html.agresso-dark-page[data-pragresso-wide-pref]:not(:has(th[data-fieldname^="reg_value"])) table.Excel > tbody > tr:is(.ListItem, .AltListItem) > td {
+    background-color: var(--t-bg); border: 0 !important; border-bottom: 1px solid var(--t-sep) !important; padding-top: 6px !important; padding-bottom: 6px !important;
+}
+html.agresso-dark-page[data-pragresso-wide-pref]:not(:has(th[data-fieldname^="reg_value"])) table.Excel > tbody > tr.AltListItem > td { background-color: var(--t-alt); }
+html.agresso-dark-page[data-pragresso-wide-pref]:not(:has(th[data-fieldname^="reg_value"])) table.Excel > tbody > tr:is(.ListItem, .AltListItem):hover > td { background-image: linear-gradient(var(--t-hover), var(--t-hover)); }
+html.agresso-dark-page[data-pragresso-wide-pref]:not(:has(th[data-fieldname^="reg_value"])) table.Excel > tbody > tr.SumItem > td {
+    background-color: var(--t-alt) !important; border: 0 !important; border-top: 1px solid var(--t-border) !important; border-bottom: 1px solid var(--t-sep) !important; font-weight: 600 !important;
+}
+html.agresso-dark-page[data-pragresso-wide-pref]:not(:has(th[data-fieldname^="reg_value"])) body { padding-bottom: 80px !important; }
+html.agresso-dark-page[data-pragresso-wide-pref]:not(:has(th[data-fieldname^="reg_value"])) .ToolBarContainer { box-shadow: 0 14px 0 4px #ffffff !important; }
+
+/* Autosave indicator only on the timesheet (cells.js sets the class). */
+#agresso-autosave-indicator.pw-off-timesheet { display: none !important; }

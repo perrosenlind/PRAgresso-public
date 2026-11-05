@@ -2306,9 +2306,17 @@
   // Both quote styles: transferred weeks render TG.GS.ER(this, "work_order").
   const DELPROJ_CODE_DIV_SEL = 'td:is([onclick*="\'work_order\'"], [onclick*=\'"work_order"\']) > div.DivOverflowNoWrap';
 
+  // Tid per resurs (the report view) also has a Delproj column, so
+  // work_order alone is not enough to tell the timesheet apart: only the
+  // timesheet has the day columns reg_value1..N.
+  function timesheetWorkOrderTh(doc) {
+    const d = doc || document;
+    return d.querySelector('th[data-fieldname^="reg_value"]') ? d.querySelector('th[data-fieldname="work_order"]') : null;
+  }
+
   function applyDelprojColumnFit() {
     try {
-      const th = document.querySelector('th[data-fieldname="work_order"]');
+      const th = timesheetWorkOrderTh(document);
       if (!th) return;
       if (!document.getElementById(DELPROJ_FIT_STYLE_ID)) {
         const style = document.createElement('style');
@@ -2586,7 +2594,7 @@
   const NEWROW_TTL_MS = 20000;
 
   function findTidtransaktionNewButton() {
-    const th = document.querySelector('th[data-fieldname="work_order"]');
+    const th = timesheetWorkOrderTh(document);
     const table = th && th.closest('table');
     const sample = table && table.querySelector('[id*="__sumRow_"], input[name$="$_delete"]');
     const gridPrefix = sample ? (sample.id || sample.name.replace(/\$/g, '_')).split(/__sumRow_|_row\d/)[0] : '';
@@ -2658,7 +2666,7 @@
     try {
       const existing = document.getElementById(LIB_PANEL_ID);
       if (settings.delproj_library_enabled !== true ||
-          !document.querySelector('th[data-fieldname="work_order"]')) {
+          !timesheetWorkOrderTh(document)) {
         if (existing) existing.remove();
         return;
       }
@@ -3183,7 +3191,7 @@
   function fitWideGrid() {
     try {
       const main = document.querySelector('[data-pragresso-wide-main]');
-      const th = main && main.querySelector('th[data-fieldname="work_order"]');
+      const th = main && timesheetWorkOrderTh(document);
       const table = th && th.closest('table');
       const outer = table && table.closest('table.DataListBlue');
       const sc = outer && outer.parentElement;
@@ -3277,7 +3285,7 @@
   function applyWideLayout() {
     try {
       const mode = wideMode();
-      const th = document.querySelector('th[data-fieldname="work_order"]');
+      const th = timesheetWorkOrderTh(document);
       const host = th && th.closest('.TabContainer');
       if (mode === 'off' || !host) { removeWideLayout(); return; }
       const main = Array.from(host.children).find((c) => c.contains(th));
@@ -3390,7 +3398,7 @@
   const MCP_STATUS_RE = /^(utkast|klar|överförd|nekad|godkänd|avvisad|draft|ready|transferred|rejected|approved)\b/i;
 
   function mcpReadTimesheet() {
-    const th = document.querySelector('th[data-fieldname="work_order"]');
+    const th = timesheetWorkOrderTh(document);
     const table = th && th.closest('table');
     if (!table) return null;
     const headerRow = th.parentElement;
@@ -3844,7 +3852,7 @@
     const nameEl = document.querySelector('input.slcEditorReadOnly[name$="$Editor"]');
     const dateEl = document.querySelector('input[name$="$date_in_period$i"]');
     const normal = document.querySelector('input[name$="normalhrs_schedule$i"]');
-    const th = document.querySelector('th[data-fieldname="work_order"]');
+    const th = timesheetWorkOrderTh(document);
     const dates = th ? Array.from(th.parentElement.children)
       .filter((h) => DAY_FIELD_RE.test(h.getAttribute('data-fieldname') || ''))
       .map((h) => ((h.textContent || '').match(DAY_HEADER_DATE_RE) || [])[0]).filter(Boolean) : [];
@@ -5283,6 +5291,21 @@
     return lastToolbarSlot;
   }
 
+  function timesheetOnScreen() {
+    try {
+      return getAllDocuments().some((doc) => {
+        const th = doc.querySelector('th[data-fieldname^="reg_value"]');
+        if (!th || th.offsetWidth === 0) return false;
+        // A background Agresso tab keeps its frames at 0×0, and a table in
+        // there still has width, so walk up the frame chain as well.
+        for (let w = doc.defaultView; w && w.frameElement; w = w.parent) {
+          if (w.frameElement.offsetWidth === 0 || w.frameElement.offsetHeight === 0) return false;
+        }
+        return true;
+      });
+    } catch (e) { return true; }
+  }
+
   function positionIndicatorNearSaveButton() {
     // The indicator used to be anchored to the save-button's vertical/
     // horizontal position, which caused visible jitter every time the user
@@ -5294,6 +5317,10 @@
     try {
       const indicator = ensureIndicator();
       if (!indicator) return;
+      // Autosave only means something on the timesheet: hide the indicator
+      // while no visible frame shows it (Tid per resurs, other reports,
+      // the start menu). Day columns reg_value1..N are timesheet-only.
+      indicator.classList.toggle('pw-off-timesheet', !timesheetOnScreen());
       // Widescreen A / B: sit inside Agresso's bottom toolbar, at its right
       // end, when that toolbar is on screen. Anchored to the toolbar (a
       // fixed element that does not move between renders), not to the save

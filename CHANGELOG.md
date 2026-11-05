@@ -4,6 +4,13 @@ All notable changes to **PRAgresso** are logged here.
 
 Versioning follows SemVer: patch (third digit) = bug fix, minor (second) = new feature, major (first) = breaking change.
 
+## 1.10.1 — 2026-11-05
+
+### Fixed
+- **Tid per resurs is no longer mistaken for the timesheet.** That report view also has a `Delproj` column (`th[data-fieldname="work_order"]`), so the widescreen grid layout, the Delproj library panel, the column fit, the ＋ Ny rad button and the MCP bridge's reader all latched onto it. The timesheet is now recognised by its day columns (`reg_value1..N`) as well, in both `cells.js` and the widescreen CSS.
+- **Widescreen A / B on Agresso's other views.** Under the dark page, Tid per resurs and other reports get the same panel look as the timesheet (sections, headers, `table.Excel` grid), without its fit-to-window layout. The page keeps room below the fixed bottom toolbar, and a shadow in the page colour fills the gap under it so rows do not show through. Verified live on Tid per resurs.
+- **The autosave indicator only shows on the timesheet.** It is hidden while no visible frame shows the timesheet (Tid per resurs, other reports, the start menu). A background Agresso tab keeps its frames at 0×0, so the frame chain is checked too.
+
 ## 1.10.0 — 2026-11-04
 
 Everything new in this release is **opt-in** and off by default.
