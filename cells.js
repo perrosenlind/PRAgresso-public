@@ -3946,6 +3946,7 @@
     btn.addEventListener('click', () => setWideDetails(!document.documentElement.hasAttribute('data-pragresso-wide-details')));
     hdr.appendChild(btn);
     setWideDetails(document.documentElement.hasAttribute('data-pragresso-wide-details'));
+    renderNavGuard();
   }
 
   // B: the Delproj summary as chips above the grid.
@@ -4073,6 +4074,213 @@
     }, 3000);
   }
 
+  // ── Unsaved edits vs. changing week ─────────────────────────────────────
+  // A period change is a postback that drops whatever is not saved yet.
+  // Verified live: 0.5 h typed into week 46, › and ‹, and the hours were
+  // gone without a word. Agresso keeps no client-side marker for it (the
+  // hours postback re-renders the field with the new value as its default
+  // and an empty $IsDirty), so the extension tracks it itself, per tab in
+  // sessionStorage, which the shell and the grid frame share and which
+  // outlives the grid's postbacks:
+  //   UNSAVED_KEY      {period, ts}      the last edit in the grid
+  //   SAVE_RESULT_KEY  {startedAt, ok}   the latest save's outcome, written
+  //                    by the top frame (watchSaveOutcome)
+  //   PENDING_NAV_KEY  {iso, at}         a week change waiting on its save
+  // The header's ‹ › and date picker go through requestNavigate: with
+  // nothing unsaved they navigate at once; otherwise autosave on saves
+  // first, and autosave off asks. Agresso's own date field is untouched.
+  const UNSAVED_KEY = 'pragresso_unsaved';
+  const SAVE_RESULT_KEY = 'pragresso_save_result';
+  const PENDING_NAV_KEY = 'pragresso_pending_nav';
+  const SAVE_STARTED_MESSAGE = 'pragresso-save-started';
+  const SAVE_WATCH_MS = 20000;
+  const PENDING_NAV_MS = SAVE_WATCH_MS + 10000;
+
+  function readJsonFlag(key) {
+    try { return JSON.parse(sessionStorage.getItem(key) || 'null'); } catch (e) { return null; }
+  }
+  function writeJsonFlag(key, v) {
+    try {
+      if (v == null) sessionStorage.removeItem(key);
+      else sessionStorage.setItem(key, JSON.stringify(v));
+    } catch (e) { /* ignore */ }
+  }
+
+  // An edit inside the Tidtransaktion grid (hours, Delproj, Aktivitet,
+  // text, a row deleted). The date field and our header live outside it.
+  function noteGridEdit(target) {
+    try {
+      const th = timesheetWorkOrderTh(document);
+      const table = th && th.closest('table');
+      if (!table || !table.contains(target)) return;
+      const period = readImportPeriod(document);
+      if (period) writeJsonFlag(UNSAVED_KEY, { period, ts: Date.now() });
+    } catch (e) { /* ignore */ }
+  }
+
+  function hasUnsavedEdits() {
+    const u = readJsonFlag(UNSAVED_KEY);
+    if (!u) return false;
+    // Edits belong to their period; once another one is shown they are gone.
+    if (u.period !== readImportPeriod(document)) { writeJsonFlag(UNSAVED_KEY, null); return false; }
+    const r = readJsonFlag(SAVE_RESULT_KEY);
+    if (r && r.ok === true && r.startedAt >= u.ts) { writeJsonFlag(UNSAVED_KEY, null); return false; }
+    return true;
+  }
+
+  // Top frame: follow one save to its answer. Success is Agresso's save
+  // overlay (the selector the dialog sweep trusts) or its "Inga ändringar
+  // gjorda!" reply; anything else within SAVE_WATCH_MS counts as not saved.
+  // Either signal already on screen when the save starts is ignored, so a
+  // stale one can only make the guard more careful, never less.
+  let saveWatchTimer = null;
+  let saveOverlaySeenAt = 0;
+  function isSaveOverlayVisible() {
+    return getAllDocuments().some((doc) => {
+      try {
+        return Array.from(doc.querySelectorAll(SAVE_DIALOG_SELECTORS[0])).some((n) => n.getClientRects().length > 0);
+      } catch (e) { return false; }
+    });
+  }
+  function watchSaveOutcome() {
+    try { if (window.top !== window) return; } catch (e) { return; }
+    const startedAt = Date.now();
+    const overlayBefore = isSaveOverlayVisible();
+    const bannerBefore = isNoChangesBannerVisible();
+    writeJsonFlag(SAVE_RESULT_KEY, { startedAt, ok: null });
+    if (saveWatchTimer) clearInterval(saveWatchTimer);
+    saveWatchTimer = setInterval(() => {
+      let ok = null;
+      if (saveOverlaySeenAt >= startedAt || (!overlayBefore && isSaveOverlayVisible())) ok = true;
+      else if (!bannerBefore && isNoChangesBannerVisible()) ok = true;
+      else if (Date.now() - startedAt > SAVE_WATCH_MS) ok = false;
+      if (ok === null) return;
+      clearInterval(saveWatchTimer);
+      saveWatchTimer = null;
+      writeJsonFlag(SAVE_RESULT_KEY, { startedAt, ok, at: Date.now() });
+    }, 250);
+  }
+
+  // A save the user starts in Agresso itself (Spara, Alt/Cmd+S). Our own
+  // saves go through triggerShortcutSave, whose synthetic keys are not
+  // trusted and so are not counted twice here.
+  const MANUAL_SAVE_SEL = 'a[aria-label="Spara"], a[aria-label="Save"], a[id$="tblsysSave"], .ToolBarContainer a.RibbonInlineButtonHappy';
+  function noteManualSave() {
+    try {
+      if (window.top === window) watchSaveOutcome();
+      else window.top.postMessage({ type: SAVE_STARTED_MESSAGE }, window.location.origin);
+    } catch (e) { /* ignore */ }
+  }
+  function onManualSaveIntent(event) {
+    try {
+      if (!event.isTrusted) return;
+      if (event.type === 'keydown') {
+        if ((event.altKey || event.metaKey || event.ctrlKey) && String(event.key).toLowerCase() === 's') noteManualSave();
+        return;
+      }
+      const t = event.target;
+      if (t instanceof Element && t.closest(MANUAL_SAVE_SEL)) noteManualSave();
+    } catch (e) { /* ignore */ }
+  }
+
+  let navGuard = null; // { kind: 'ask', date, text? } | { kind: 'busy', text }
+  function setNavGuard(state) {
+    navGuard = state;
+    renderNavGuard();
+  }
+
+  function renderNavGuard() {
+    const hdr = document.getElementById(WIDE_HEADER_ID);
+    if (!hdr) return;
+    let box = hdr.querySelector('.pw-guard');
+    hdr.classList.toggle('pw-busy', !!navGuard && navGuard.kind === 'busy');
+    if (!navGuard) { if (box) box.remove(); return; }
+    const nav = hdr.querySelector('.pw-nav');
+    if (!nav) return;
+    if (!box) {
+      box = el('span', 'pw-guard');
+      box.setAttribute('role', 'status');
+    }
+    if (nav.nextSibling !== box) nav.after(box);
+    box.textContent = '';
+    if (navGuard.kind !== 'ask') {
+      box.appendChild(el('span', 'pw-guard-text', navGuard.text || ''));
+      return;
+    }
+    const d = navGuard.date;
+    box.appendChild(el('span', 'pw-guard-text', navGuard.text || 'Osparade ändringar'));
+    const add = (label, cls, fn) => {
+      const b = el('button', cls, label);
+      b.type = 'button';
+      b.addEventListener('click', fn);
+      box.appendChild(b);
+    };
+    add('Spara och byt', 'pw-confirm', () => saveThenNavigate(d));
+    add('Byt utan att spara', 'pw-guard-btn', () => {
+      writeJsonFlag(UNSAVED_KEY, null);
+      setNavGuard(null);
+      navigateToDate(d);
+    });
+    add('Avbryt', 'pw-guard-btn', () => {
+      setNavGuard(null);
+      const pick = hdr.querySelector('.pw-date');
+      const cur = parseFieldDate((wideDateField() || {}).value);
+      if (pick && cur) pick.value = isoOf(cur);
+    });
+  }
+
+  function requestNavigate(d) {
+    if (!d) return;
+    if (!hasUnsavedEdits()) {
+      setNavGuard(null);
+      navigateToDate(d);
+    } else if (getToggleEnabled()) {
+      saveThenNavigate(d);
+    } else {
+      setNavGuard({ kind: 'ask', date: d });
+    }
+  }
+
+  function saveThenNavigate(d) {
+    writeJsonFlag(PENDING_NAV_KEY, { iso: isoOf(d), at: Date.now() });
+    saveNowFromHeader();
+    resumePendingNav();
+  }
+
+  // Runs in the grid document that asked, and again in the one the save's
+  // postback brings: whichever sees the outcome first acts on it.
+  let pendingNavTimer = null;
+  function resumePendingNav() {
+    if (pendingNavTimer || !wideDateField()) return;
+    const first = readJsonFlag(PENDING_NAV_KEY);
+    if (!first) return;
+    if (!(Date.now() - first.at < PENDING_NAV_MS)) { writeJsonFlag(PENDING_NAV_KEY, null); return; }
+    setNavGuard({ kind: 'busy', text: 'Sparar innan veckan byts…' });
+    pendingNavTimer = setInterval(() => {
+      const p = readJsonFlag(PENDING_NAV_KEY);
+      if (!p) { clearInterval(pendingNavTimer); pendingNavTimer = null; return; }
+      const r = readJsonFlag(SAVE_RESULT_KEY);
+      const answered = !!r && r.startedAt >= p.at && r.ok !== null;
+      if (!answered && Date.now() - p.at < PENDING_NAV_MS) return;
+      clearInterval(pendingNavTimer);
+      pendingNavTimer = null;
+      writeJsonFlag(PENDING_NAV_KEY, null);
+      const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(p.iso || '');
+      const target = m ? new Date(+m[1], +m[2] - 1, +m[3]) : null;
+      if (answered && r.ok === true && target) {
+        writeJsonFlag(UNSAVED_KEY, null);
+        setNavGuard(null);
+        navigateToDate(target);
+      } else if (target) {
+        // Not confirmed: stay, and offer the same three ways out, so a
+        // save signal Agresso stops sending can never trap the arrows.
+        setNavGuard({ kind: 'ask', date: target, text: 'Sparandet bekräftades inte' });
+      } else {
+        setNavGuard(null);
+      }
+    }, 300);
+  }
+
   function wideStatusField() {
     return Array.from(document.querySelectorAll('input.dlcEditor[name$="$Editor"]')).find((e) => {
       const xml = e.closest('td') && e.closest('td').querySelector('xml');
@@ -4137,17 +4345,17 @@
       const b = shownPeriodBounds();
       if (b) {
         const edge = dir < 0 ? b.first : b.last;
-        navigateToDate(new Date(edge.getFullYear(), edge.getMonth(), edge.getDate() + dir));
+        requestNavigate(new Date(edge.getFullYear(), edge.getMonth(), edge.getDate() + dir));
         return;
       }
       const d = parseFieldDate((wideDateField() || {}).value);
-      if (d) navigateToDate(new Date(d.getFullYear(), d.getMonth(), d.getDate() + 7 * dir));
+      if (d) requestNavigate(new Date(d.getFullYear(), d.getMonth(), d.getDate() + 7 * dir));
     };
     prev.addEventListener('click', () => step(-1));
     next.addEventListener('click', () => step(1));
     pick.addEventListener('change', () => {
       const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(pick.value);
-      if (m) navigateToDate(new Date(+m[1], +m[2] - 1, +m[3]));
+      if (m) requestNavigate(new Date(+m[1], +m[2] - 1, +m[3]));
     });
     wrap.appendChild(prev);
     wrap.appendChild(pick);
@@ -6500,6 +6708,7 @@
   }
 
   function triggerShortcutSave() {
+    try { watchSaveOutcome(); } catch (e) { /* ignore */ }
     const docs = getAllDocuments();
     const targets = new Set();
 
@@ -6722,6 +6931,7 @@
         // contains the word "utkast") and auto-closed them.
         if (isSaveDialog(candidate)) {
           sawSaveDialogCandidate = true;
+          saveOverlaySeenAt = Date.now();
           break;
         }
       } catch (e) {
@@ -8924,6 +9134,8 @@
       return; // ignore row select checkboxes
     }
 
+    noteGridEdit(target);
+
     const row = target.closest('tr');
     if (!row) {
       return;
@@ -9031,12 +9243,23 @@
       return;
     }
 
+    // Row actions under Tidtransaktion change the report through a postback
+    // without one input event, so count them as edits for the week guard:
+    // Ta bort, and Kopiera, whose id is generated (`…_buttons__cb90-1659`;
+    // seen live, a copied row was lost to ‹ › without a warning). Lägg till
+    // only adds an empty row, and the layout reset saves nothing.
+    try {
+      const b = target.closest('button[id*="_buttons__"]');
+      if (b && !/_buttons__(newButton|resetLayoutButton)$/.test(b.id)) noteGridEdit(b);
+    } catch (e) { /* ignore */ }
+
     if (isDeletionButton(target)) {
       // Deleting renumbers every row after the deleted one, so a held
       // Beskrivningstext would otherwise be written into whichever row
       // inherits the number — the row Agresso jumps to when the deleted one
       // disappears. Release before the postback carries the change out.
       releaseStickyHolds('delete clicked');
+      noteGridEdit(target);
       const row = target.closest('tr');
       pendingRow = row || pendingRow;
       markActivity();
@@ -9203,6 +9426,8 @@
       document.addEventListener('input', onFieldInput, true);
       document.addEventListener('blur', onFieldBlur, true);
       document.addEventListener('click', onDeleteClick, true);
+      document.addEventListener('click', onManualSaveIntent, true);
+      document.addEventListener('keydown', onManualSaveIntent, true);
       document.addEventListener('focusin', onDropdownOpen, true);
       document.addEventListener('change', onDropdownClose, true);
       document.addEventListener('focusout', onDropdownClose, true);
@@ -9210,6 +9435,7 @@
       installLogoutIntentWatch();
       installDayDoneWatch();
       scheduleLayoutRefresh();
+      try { resumePendingNav(); } catch (e) { /* ignore */ }
       return;
     }
 
@@ -9230,6 +9456,8 @@
     document.addEventListener('input', onFieldInput, true);
     document.addEventListener('blur', onFieldBlur, true);
     document.addEventListener('click', onDeleteClick, true);
+    document.addEventListener('click', onManualSaveIntent, true);
+    document.addEventListener('keydown', onManualSaveIntent, true);
     document.addEventListener('focusin', onDropdownOpen, true);
     document.addEventListener('change', onDropdownClose, true);
     document.addEventListener('focusout', onDropdownClose, true);
@@ -9522,6 +9750,10 @@
           // countdown open indefinitely (ACTIVITY_MESSAGE) or paint the red
           // period-end UI (agresso_period_enforce).
           if (!ev || ev.origin !== window.location.origin) return;
+          if (ev.data && ev.data.type === SAVE_STARTED_MESSAGE) {
+            watchSaveOutcome();
+            return;
+          }
           if (ev.data && ev.data.type === EDIT_MESSAGE) {
             resumeFromAutoPause('edit in frame');
             return;

@@ -1190,6 +1190,18 @@ html[data-pragresso-wide-pref="rail"] #pragresso-wide-aside #pragresso-library-p
 }
 :is(#pragresso-wide-header, #pragresso-library-panel) .pw-seg button:disabled { opacity: 0.5; cursor: default; }
 #pragresso-wide-header.pw-busy { opacity: 0.6; pointer-events: none; }
+/* Unsaved edits when changing week (cells.js renderNavGuard). */
+#pragresso-wide-header .pw-guard { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+/* With the prompt shown the header is tight: the controls keep their size
+ * and the muted period / name text shortens instead (seen live: "Klar"
+ * was clipped out of the status group). */
+#pragresso-wide-header > :is(.pw-nav, .pw-seg, .pw-guard) { flex-shrink: 0; }
+#pragresso-wide-header > .pw-muted { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#pragresso-wide-header .pw-guard-text { color: var(--p-accent); font-weight: 600; font-size: 13px; }
+#pragresso-wide-header .pw-guard-btn {
+    min-height: 32px; padding: 0 10px; border-radius: 6px; cursor: pointer;
+    background: transparent; color: var(--p-fg); border: 1px solid var(--p-border); font: inherit; font-size: 13px;
+}
 
 /* ── Widescreen A / B: Tidtransaktion in the panels' look ───────────────
  * Same surface, corners, type and separators as the Delproj panels, on
@@ -1444,6 +1456,53 @@ html.agresso-dark-page[data-pragresso-wide-pref] .u4-application-header input {
     border-radius: 6px !important;
     border: 1px solid #c4c4c4 !important;
     background: #f2f2f2 !important;
+}
+
+/* Agresso's message popups (U4.MessageOverlay: "Genomfört" after a save,
+ * Fel, Varning, Info; ExtJS, top document) in the panels' look. Colours,
+ * borders, corners and type only: ExtJS sizes and places the box itself.
+ * The body carried its own white fill (black under the invert). Verified
+ * live on all four kinds through U4.MessageOverlay.<kind>(text). */
+html.agresso-dark-page[data-pragresso-wide-pref] :is(.u4-messageoverlay-success, .u4-messageoverlay-info, .u4-messageoverlay-warning, .u4-messageoverlay-error) {
+    background: #e5e5e5 !important;
+    border: 1px solid #d2d2d2 !important;
+    border-radius: 8px !important;
+    box-shadow: none !important;
+    overflow: hidden;
+}
+html[data-agresso-theme="advania"].agresso-dark-page[data-pragresso-wide-pref] :is(.u4-messageoverlay-success, .u4-messageoverlay-info, .u4-messageoverlay-warning, .u4-messageoverlay-error) { border-color: #e0b3ff !important; }
+html.agresso-dark-page[data-pragresso-wide-pref] :is(.u4-messageoverlay-success-header, .u4-messageoverlay-info-header, .u4-messageoverlay-warning-header, .u4-messageoverlay-error-header) {
+    background: transparent !important;
+    border-bottom: 1px solid #d8d8d8 !important;
+}
+html.agresso-dark-page[data-pragresso-wide-pref] :is(.u4-messageoverlay-success-header-text, .u4-messageoverlay-info-header-text, .u4-messageoverlay-warning-header-text, .u4-messageoverlay-error-header-text) {
+    font: 600 14px/22px "Segoe UI", system-ui, -apple-system, sans-serif !important;
+    color: #000000 !important;
+}
+html.agresso-dark-page[data-pragresso-wide-pref] :is(.u4-messageoverlay-success-body, .u4-messageoverlay-info-body, .u4-messageoverlay-warning-body, .u4-messageoverlay-error-body) { background: transparent !important; }
+html.agresso-dark-page[data-pragresso-wide-pref] :is(.u4-messageoverlay-success-body, .u4-messageoverlay-info-body, .u4-messageoverlay-warning-body, .u4-messageoverlay-error-body),
+html.agresso-dark-page[data-pragresso-wide-pref] :is(.u4-messageoverlay-success-body, .u4-messageoverlay-info-body, .u4-messageoverlay-warning-body, .u4-messageoverlay-error-body) * {
+    font: 13px/1.5 "Segoe UI", system-ui, -apple-system, sans-serif !important;
+    color: #000000 !important;
+}
+html.agresso-dark-page[data-pragresso-wide-pref] :is(.u4-messageoverlay-success-footer, .u4-messageoverlay-info-footer, .u4-messageoverlay-warning-footer, .u4-messageoverlay-error-footer) {
+    background: transparent !important;
+    border-top: 1px solid #d8d8d8 !important;
+}
+html.agresso-dark-page[data-pragresso-wide-pref] :is(.u4-messageoverlay-success-footer, .u4-messageoverlay-info-footer, .u4-messageoverlay-warning-footer, .u4-messageoverlay-error-footer) a.x-btn.u4-standard-button-happy {
+    width: auto !important;
+    height: 26px !important;
+    box-sizing: border-box !important;
+    padding: 3px 14px !important;
+    background: #7ea6f0 !important;
+    border: 0 !important;
+    border-radius: 6px !important;
+    box-shadow: none !important;
+}
+html[data-agresso-theme="advania"].agresso-dark-page[data-pragresso-wide-pref] :is(.u4-messageoverlay-success-footer, .u4-messageoverlay-info-footer, .u4-messageoverlay-warning-footer, .u4-messageoverlay-error-footer) a.x-btn.u4-standard-button-happy { background: #ff55bd !important; }
+html.agresso-dark-page[data-pragresso-wide-pref] :is(.u4-messageoverlay-success-footer, .u4-messageoverlay-info-footer, .u4-messageoverlay-warning-footer, .u4-messageoverlay-error-footer) a.x-btn.u4-standard-button-happy .x-btn-inner {
+    font: 600 13px/20px "Segoe UI", system-ui, -apple-system, sans-serif !important;
+    color: #000000 !important;
 }
 
 /* ── Widescreen A / B: the whole view fits the window ───────────────────

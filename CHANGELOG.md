@@ -4,6 +4,19 @@ All notable changes to **PRAgresso** are logged here.
 
 Versioning follows SemVer: patch (third digit) = bug fix, minor (second) = new feature, major (first) = breaking change.
 
+## 1.11.0 — 2026-11-09
+
+### Added
+- **Changing week no longer throws away unsaved hours.** A period change in Agresso is a postback that silently drops anything not saved yet (verified live: 0.5 h typed into a week, › and ‹, and the hours were gone without a word). The header's ‹ / › and date picker now check first:
+  - Nothing unsaved: the week changes at once, as before.
+  - Autosave on: the report is saved first, and the week changes once Agresso confirms the save.
+  - Autosave off: the header asks **Osparade ändringar** with *Spara och byt* / *Byt utan att spara* / *Avbryt*.
+  - A save that is not confirmed within 20 s leaves the week as it is and offers the same three choices, so the arrows can never get stuck.
+  - Agresso keeps no client-side marker for unsaved changes, so PRAgresso tracks them per tab in `sessionStorage`: any edit in the Tidtransaktion grid, plus the row actions *Ta bort* and *Kopiera*, which change the report through a postback without a keystroke. *Lägg till* alone does not count; filling in the new row does. The marker clears when another period is shown, or when a save is confirmed by Agresso's save overlay (`u4_messageoverlay_success`) or its "Inga ändringar gjorda!" reply. That holds for autosave, the header, the AI agent and Agresso's own *Spara* / Alt+S alike.
+  - While the prompt shows, the header's controls keep their size and the muted period / name text shortens instead.
+  - Agresso's own *Datum i perioden* field is not guarded.
+- **Agresso's message popups in the panel look.** Under the dark page with widescreen A / B, the *Genomfört*, *Fel*, *Varning* and *Info* popups (`U4.MessageOverlay`) get the panels' surface, border, corners and type, and their OK button matches *Spara* in the bottom toolbar. The body's own white fill (black under the invert) is gone. Colours, borders and type only: ExtJS still sizes and places the box.
+
 ## 1.10.2 — 2026-11-09
 
 ### Fixed
