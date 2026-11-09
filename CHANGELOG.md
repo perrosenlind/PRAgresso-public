@@ -4,6 +4,12 @@ All notable changes to **PRAgresso** are logged here.
 
 Versioning follows SemVer: patch (third digit) = bug fix, minor (second) = new feature, major (first) = breaking change.
 
+## 1.10.2 — 2026-11-09
+
+### Fixed
+- **The week arrows could reload the same week.** Agresso snaps *Datum i perioden* to the period's first day, and splits periods at month ends: 202644 runs 26/10–31/10 and 202645 runs 01/11–08/11. ‹ and › added ±7 days to that date, so › from 202645 asked for 08/11, still inside the same period, and week 45 came back. The arrows now step from the shown period's own edges, read from the grid's day columns (the year comes from the date field, so a period across New Year works too): › goes to the day after the last column, ‹ to the day before the first. Verified live 44 ↔ 45 ↔ 46.
+- **The whole UI stopped 80 px short of the window bottom.** 1.10.1's room below the toolbar on Tid per resurs (`body { padding-bottom: 80px }` on pages without the timesheet's day columns) also matched Agresso's top shell, which never holds the grid itself (that lives in an iframe). The shell's `<body>` is the ExtJS viewport, so every panel was laid out 80 px too short. The rule now also requires the page's own `.ToolBarContainer`.
+
 ## 1.10.1 — 2026-11-05
 
 ### Fixed

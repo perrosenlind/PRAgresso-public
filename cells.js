@@ -4012,6 +4012,30 @@
     return null;
   }
 
+  // First and last day of the shown period, from the grid's day columns
+  // (dd/mm), each given the year that puts it closest to the date field's
+  // date, so a period across New Year resolves too.
+  function shownPeriodBounds() {
+    const base = parseFieldDate((wideDateField() || {}).value);
+    const th = timesheetWorkOrderTh(document);
+    if (!base || !th) return null;
+    const days = Array.from(th.parentElement.children)
+      .filter((h) => DAY_FIELD_RE.test(h.getAttribute('data-fieldname') || ''))
+      .map((h) => {
+        const m = /(\d{1,2})\/(\d{1,2})/.exec(h.textContent || '');
+        if (!m) return null;
+        let best = null;
+        for (const y of [base.getFullYear() - 1, base.getFullYear(), base.getFullYear() + 1]) {
+          const d = new Date(y, +m[2] - 1, +m[1]);
+          if (!best || Math.abs(d - base) < Math.abs(best - base)) best = d;
+        }
+        return best;
+      })
+      .filter(Boolean)
+      .sort((a, b) => a - b);
+    return days.length ? { first: days[0], last: days[days.length - 1] } : null;
+  }
+
   function runInlineInPage(code) {
     const b = document.createElement('button');
     b.type = 'button';
@@ -4104,12 +4128,23 @@
     pick.setAttribute('aria-label', 'Datum i perioden');
     const cur = parseFieldDate((wideDateField() || {}).value);
     if (cur) pick.value = isoOf(cur);
-    const step = (days) => {
+    // Step to the day just outside the shown period, not ±7 from the date
+    // field: Agresso snaps that date to the period's start, and periods
+    // are not always Mon–Sun. 202645 ran Sön 01/11 – Sön 08/11, so
+    // 01/11 + 7 = 08/11 was still inside it and › reloaded week 45
+    // (seen live).
+    const step = (dir) => {
+      const b = shownPeriodBounds();
+      if (b) {
+        const edge = dir < 0 ? b.first : b.last;
+        navigateToDate(new Date(edge.getFullYear(), edge.getMonth(), edge.getDate() + dir));
+        return;
+      }
       const d = parseFieldDate((wideDateField() || {}).value);
-      if (d) navigateToDate(new Date(d.getFullYear(), d.getMonth(), d.getDate() + days));
+      if (d) navigateToDate(new Date(d.getFullYear(), d.getMonth(), d.getDate() + 7 * dir));
     };
-    prev.addEventListener('click', () => step(-7));
-    next.addEventListener('click', () => step(7));
+    prev.addEventListener('click', () => step(-1));
+    next.addEventListener('click', () => step(1));
     pick.addEventListener('change', () => {
       const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(pick.value);
       if (m) navigateToDate(new Date(+m[1], +m[2] - 1, +m[3]));

@@ -1582,7 +1582,11 @@ html.agresso-dark-page[data-pragresso-wide-pref]:not(:has(th[data-fieldname^="re
 html.agresso-dark-page[data-pragresso-wide-pref]:not(:has(th[data-fieldname^="reg_value"])) table.Excel > tbody > tr.SumItem > td {
     background-color: var(--t-alt) !important; border: 0 !important; border-top: 1px solid var(--t-border) !important; border-bottom: 1px solid var(--t-sep) !important; font-weight: 600 !important;
 }
-html.agresso-dark-page[data-pragresso-wide-pref]:not(:has(th[data-fieldname^="reg_value"])) body { padding-bottom: 80px !important; }
+/* Only in a document that has the toolbar: without :has(.ToolBarContainer)
+ * this also matched the top shell (whose grid sits in an iframe), and its
+ * <body> is ExtJS's viewport, so the whole UI stopped 80 px short of the
+ * window bottom (seen live). */
+html.agresso-dark-page[data-pragresso-wide-pref]:not(:has(th[data-fieldname^="reg_value"])):has(.ToolBarContainer) body { padding-bottom: 80px !important; }
 html.agresso-dark-page[data-pragresso-wide-pref]:not(:has(th[data-fieldname^="reg_value"])) .ToolBarContainer { box-shadow: 0 14px 0 4px #ffffff !important; }
 
 /* Autosave indicator only on the timesheet (cells.js sets the class). */
